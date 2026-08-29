@@ -1,9 +1,20 @@
 package com.example.pleurotech.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,27 +27,39 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -47,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -56,9 +80,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import com.example.pleurotech.ai.AiBrief
 import com.example.pleurotech.ai.AiRecommendation
 import com.example.pleurotech.ai.AssistantPriority
@@ -77,19 +106,73 @@ import com.example.pleurotech.data.ScanResult
 import com.example.pleurotech.data.ScanReport
 import com.example.pleurotech.data.ShelfSummary
 import com.example.pleurotech.data.TrendInsights
+import com.example.pleurotech.data.sync.SyncResult
+import com.example.pleurotech.ui.theme.PleurotechTheme
+import com.example.pleurotech.util.QrLabelPrinter
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private val AppBackground = Color(0xFFF4F7F1)
-private val Surface = Color(0xFFFFFFFF)
-private val SurfaceAlt = Color(0xFFEAF1E6)
-private val Border = Color(0x1F1F3527)
-private val TextPrimary = Color(0xFF1D2D22)
-private val TextMuted = Color(0xFF607067)
-private val InfoBlue = Color(0xFF2F80ED)
+enum class ThemePreference(val title: String, val icon: String) {
+    Light("Light", "☀️"),
+    Dark("Dark", "🌙"),
+    System("Auto", "📱")
+}
+
+data class PleuroColors(
+    val appBackground: Color,
+    val surface: Color,
+    val surfaceAlt: Color,
+    val border: Color,
+    val textPrimary: Color,
+    val textMuted: Color,
+    val infoBlue: Color
+)
+
+val LightPleuroColors = PleuroColors(
+    appBackground = Color(0xFFF4F7F1),
+    surface = Color(0xFFFFFFFF),
+    surfaceAlt = Color(0xFFEAF1E6),
+    border = Color(0x1F1F3527),
+    textPrimary = Color(0xFF1D2D22),
+    textMuted = Color(0xFF607067),
+    infoBlue = Color(0xFF2F80ED)
+)
+
+val DarkPleuroColors = PleuroColors(
+    appBackground = Color(0xFF0E1410),
+    surface = Color(0xFF17201A),
+    surfaceAlt = Color(0xFF212C24),
+    border = Color(0x33FFFFFF),
+    textPrimary = Color(0xFFF1F6F0),
+    textMuted = Color(0xFF98ACA0),
+    infoBlue = Color(0xFF4B96FF)
+)
+
+val LocalPleuroColors = compositionLocalOf { LightPleuroColors }
+
+val AppBackground: Color
+    @Composable get() = LocalPleuroColors.current.appBackground
+
+val Surface: Color
+    @Composable get() = LocalPleuroColors.current.surface
+
+val SurfaceAlt: Color
+    @Composable get() = LocalPleuroColors.current.surfaceAlt
+
+val Border: Color
+    @Composable get() = LocalPleuroColors.current.border
+
+val TextPrimary: Color
+    @Composable get() = LocalPleuroColors.current.textPrimary
+
+val TextMuted: Color
+    @Composable get() = LocalPleuroColors.current.textMuted
+
+val InfoBlue: Color
+    @Composable get() = LocalPleuroColors.current.infoBlue
 
 enum class AppTab(val title: String) {
     Dashboard("Dashboard"),
@@ -97,73 +180,171 @@ enum class AppTab(val title: String) {
     Labels("Labels"),
     History("History"),
     Analytics("Analytics"),
-    Assistant("AI")
+    Assistant("AI"),
+    Settings("Settings")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PleuroTechApp(repository: PleuroTechRepository) {
     var selectedTab by remember { mutableStateOf(AppTab.Dashboard) }
+    var themePreference by remember { mutableStateOf(ThemePreference.System) }
+    val isSystemDark = isSystemInDarkTheme()
+    val isDark = when (themePreference) {
+        ThemePreference.System -> isSystemDark
+        ThemePreference.Light -> false
+        ThemePreference.Dark -> true
+    }
+    val currentColors = if (isDark) DarkPleuroColors else LightPleuroColors
+
+    val auth = repository.authManager
+    var isAuthenticated by remember { mutableStateOf(auth?.isLoggedIn() ?: false) }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    Scaffold(
-        containerColor = AppBackground,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            NavigationBar(containerColor = Surface) {
-                AppTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        icon = { Text(tab.iconLabel(), fontWeight = FontWeight.Bold) },
-                        label = { Text(tab.title) },
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(AppBackground)
-                .padding(innerPadding)
-        ) {
-            AppHeader()
-            when (selectedTab) {
-                AppTab.Dashboard -> DashboardScreen(
+    CompositionLocalProvider(LocalPleuroColors provides currentColors) {
+        PleurotechTheme(darkTheme = isDark) {
+            if (!isAuthenticated) {
+                AuthScreen(
                     repository = repository,
-                    onOpenHistory = { selectedTab = AppTab.History },
-                    onOpenScan = { selectedTab = AppTab.Scan }
-                ) { repository.addMockScan() }
-                AppTab.Scan -> ScanScreen(
-                    repository = repository,
-                    onMockScan = { repository.addMockScan() }
-                )
-                AppTab.Labels -> LabelsScreen(
-                    repository = repository,
-                    onPrint = {
-                        val total = repository.bagLabels().size
-                        scope.launch { snackbarHostState.showSnackbar("$total printable QR labels ready") }
+                    onAuthSuccess = {
+                        val user = repository.authManager?.getCurrentUser()
+                        selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
+                        isAuthenticated = true
                     }
                 )
-                AppTab.History -> HistoryScreen(
-                    repository = repository,
-                    onExport = {
-                        val lines = repository.exportCsv().lineSequence().count()
-                        scope.launch { snackbarHostState.showSnackbar("CSV ready with $lines lines") }
-                    },
-                    onClear = { repository.clear() }
-                )
-                AppTab.Analytics -> AnalyticsScreen(repository = repository)
-                AppTab.Assistant -> AssistantScreen(repository = repository)
+            } else {
+                val currentUser = repository.authManager?.getCurrentUser()
+                val isOwner = currentUser?.isOwner ?: true
+
+                val navTabs = remember(isOwner) {
+                    if (isOwner) {
+                        listOf(AppTab.Dashboard, AppTab.Scan, AppTab.Labels, AppTab.History, AppTab.Analytics, AppTab.Assistant)
+                    } else {
+                        listOf(AppTab.Scan, AppTab.History)
+                    }
+                }
+
+                androidx.compose.runtime.LaunchedEffect(currentUser) {
+                    if (!isOwner && selectedTab != AppTab.Scan && selectedTab != AppTab.History) {
+                        selectedTab = AppTab.Scan
+                    }
+                }
+
+                Scaffold(
+                    containerColor = AppBackground,
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    bottomBar = {
+                        NavigationBar(containerColor = Surface) {
+                            navTabs.forEach { tab ->
+                                NavigationBarItem(
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    icon = { Text(tab.iconLabel(), fontWeight = FontWeight.Bold) },
+                                    label = { Text(tab.title) },
+                                )
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(AppBackground)
+                            .padding(innerPadding)
+                    ) {
+                        AppHeader(
+                            selectedTab = selectedTab,
+                            onSelectTab = { selectedTab = it },
+                            onOpenSettings = { selectedTab = AppTab.Settings },
+                            repository = repository
+                        )
+                        when (selectedTab) {
+                            AppTab.Dashboard -> DashboardScreen(
+                                repository = repository,
+                                onOpenHistory = { selectedTab = AppTab.History },
+                                onOpenScan = { selectedTab = AppTab.Scan }
+                            ) { repository.addMockScan() }
+                            AppTab.Scan -> ScanScreen(
+                                repository = repository,
+                                onMockScan = { repository.addMockScan() }
+                            )
+                            AppTab.Labels -> LabelsScreen(
+                                repository = repository,
+                                onPrint = { labels, batchName ->
+                                    QrLabelPrinter(context).print(labels, batchName)
+                                    scope.launch { snackbarHostState.showSnackbar("Printing ${labels.size} QR labels…") }
+                                }
+                            )
+                            AppTab.History -> HistoryScreen(
+                                repository = repository,
+                                onExport = {
+                                    val lines = repository.exportCsv().lineSequence().count()
+                                    scope.launch { snackbarHostState.showSnackbar("CSV ready with $lines lines") }
+                                },
+                                onClear = { repository.clear() }
+                            )
+                            AppTab.Analytics -> AnalyticsScreen(repository = repository)
+                            AppTab.Assistant -> AssistantScreen(repository = repository)
+                            AppTab.Settings -> SettingsScreen(
+                                isDark = isDark,
+                                onToggleDark = { enabled ->
+                                    themePreference = if (enabled) ThemePreference.Dark else ThemePreference.Light
+                                },
+                                repository = repository,
+                                onBack = {
+                                    val user = repository.authManager?.getCurrentUser()
+                                    selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
+                                },
+                                onSignOut = {
+                                    selectedTab = AppTab.Dashboard
+                                    isAuthenticated = false
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AppHeader() {
+private fun HamburgerIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = 2.dp.toPx()
+        val w = size.width
+        val h = size.height
+        val lineSpacing = h * 0.32f
+        val startY = h * 0.18f
+
+        for (i in 0..2) {
+            val y = startY + i * lineSpacing
+            drawLine(
+                color = color,
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppHeader(
+    selectedTab: AppTab,
+    onSelectTab: (AppTab) -> Unit,
+    onOpenSettings: () -> Unit,
+    repository: PleuroTechRepository
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val sync = repository.syncManager
+    val pending = sync?.getPendingCount() ?: 0
+    val online = sync?.isOnline() ?: false
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -179,14 +360,893 @@ private fun AppHeader() {
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold
             )
+            val user = repository.authManager?.getCurrentUser()
             Text(
-                text = "Oyster mushroom farm intelligence",
+                text = if (user != null) "${user.name} · ${user.role}" else "Oyster mushroom farm intelligence",
                 color = TextMuted,
                 fontSize = 12.sp
             )
         }
-        StatusPill("Farm Ready", ScanResult.ClassA.color)
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (pending > 0) {
+                StatusPill("☁️ $pending Pending", ScanResult.ClassB.color)
+            } else if (online) {
+                StatusPill("☁️ Synced", ScanResult.ClassA.color)
+            } else {
+                StatusPill("Farm Ready", ScanResult.ClassA.color)
+            }
+
+            Box {
+                // 3-line Hamburger button
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Surface)
+                        .border(1.dp, Border, CircleShape)
+                        .clickable { menuExpanded = !menuExpanded },
+                    contentAlignment = Alignment.Center
+                ) {
+                    HamburgerIcon(
+                        color = TextPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Dropdown Menu showing all features
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier
+                        .background(Surface)
+                        .border(1.dp, Border, RoundedCornerShape(14.dp))
+                        .widthIn(min = 190.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    val user = repository.authManager?.getCurrentUser()
+                    val isOwner = user?.isOwner ?: true
+
+                    if (isOwner) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Dashboard",
+                                    fontWeight = if (selectedTab == AppTab.Dashboard) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedTab == AppTab.Dashboard) ScanResult.ClassA.color else TextPrimary
+                                )
+                            },
+                            leadingIcon = { Text("📊", fontSize = 16.sp) },
+                            onClick = {
+                                onSelectTab(AppTab.Dashboard)
+                                menuExpanded = false
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (isOwner) "Scan" else "Mushroom Scan",
+                                fontWeight = if (selectedTab == AppTab.Scan) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == AppTab.Scan) ScanResult.ClassA.color else TextPrimary
+                            )
+                        },
+                        leadingIcon = { Text("📷", fontSize = 16.sp) },
+                        onClick = {
+                            onSelectTab(AppTab.Scan)
+                            menuExpanded = false
+                        }
+                    )
+                    if (isOwner) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Labels",
+                                    fontWeight = if (selectedTab == AppTab.Labels) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedTab == AppTab.Labels) ScanResult.ClassA.color else TextPrimary
+                                )
+                            },
+                            leadingIcon = { Text("🏷️", fontSize = 16.sp) },
+                            onClick = {
+                                onSelectTab(AppTab.Labels)
+                                menuExpanded = false
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (isOwner) "History" else "Recent Scans",
+                                fontWeight = if (selectedTab == AppTab.History) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == AppTab.History) ScanResult.ClassA.color else TextPrimary
+                            )
+                        },
+                        leadingIcon = { Text("📜", fontSize = 16.sp) },
+                        onClick = {
+                            onSelectTab(AppTab.History)
+                            menuExpanded = false
+                        }
+                    )
+                    if (isOwner) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Analytics",
+                                    fontWeight = if (selectedTab == AppTab.Analytics) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedTab == AppTab.Analytics) ScanResult.ClassA.color else TextPrimary
+                                )
+                            },
+                            leadingIcon = { Text("📈", fontSize = 16.sp) },
+                            onClick = {
+                                onSelectTab(AppTab.Analytics)
+                                menuExpanded = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "AI Assistant",
+                                    fontWeight = if (selectedTab == AppTab.Assistant) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedTab == AppTab.Assistant) ScanResult.ClassA.color else TextPrimary
+                                )
+                            },
+                            leadingIcon = { Text("🤖", fontSize = 16.sp) },
+                            onClick = {
+                                onSelectTab(AppTab.Assistant)
+                                menuExpanded = false
+                            }
+                        )
+                    }
+                    HorizontalDivider(color = Border)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Settings",
+                                fontWeight = if (selectedTab == AppTab.Settings) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == AppTab.Settings) ScanResult.ClassA.color else TextPrimary
+                            )
+                        },
+                        leadingIcon = { Text("⚙️", fontSize = 16.sp) },
+                        onClick = {
+                            onOpenSettings()
+                            menuExpanded = false
+                        }
+                    )
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun ChevronRightIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = 2.dp.toPx()
+        val path = Path().apply {
+            moveTo(size.width * 0.35f, size.height * 0.25f)
+            lineTo(size.width * 0.65f, size.height * 0.5f)
+            lineTo(size.width * 0.35f, size.height * 0.75f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+private fun BackArrowIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = 2.2.dp.toPx()
+        val w = size.width
+        val h = size.height
+        drawLine(
+            color = color,
+            start = Offset(w * 0.25f, h * 0.5f),
+            end = Offset(w * 0.75f, h * 0.5f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+        val head = Path().apply {
+            moveTo(w * 0.45f, h * 0.3f)
+            lineTo(w * 0.25f, h * 0.5f)
+            lineTo(w * 0.45f, h * 0.7f)
+        }
+        drawPath(
+            path = head,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+private fun SettingItemCard(
+    iconText: String,
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit
+) {
+    val baseModifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(18.dp))
+        .background(Surface)
+        .border(1.dp, Border, RoundedCornerShape(18.dp))
+        .padding(horizontal = 16.dp, vertical = 14.dp)
+
+    val finalModifier = if (onClick != null) {
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Surface)
+            .border(1.dp, Border, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    } else {
+        baseModifier
+    }
+
+    Row(
+        modifier = finalModifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(SurfaceAlt),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(iconText, fontSize = 20.sp)
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            Text(
+                text = subtitle,
+                fontSize = 13.sp,
+                color = TextMuted
+            )
+        }
+
+        trailing()
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    isDark: Boolean,
+    onToggleDark: (Boolean) -> Unit,
+    repository: PleuroTechRepository,
+    onBack: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var showPrivacyDialog by remember { mutableStateOf(false) }
+    var showPermissionsDialog by remember { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+
+    if (showPrivacyDialog) {
+        PrivacyControlsDialog(repository = repository, onDismiss = { showPrivacyDialog = false })
+    }
+    if (showPermissionsDialog) {
+        PermissionsDialog(onDismiss = { showPermissionsDialog = false })
+    }
+    if (showHelpDialog) {
+        HelpFaqDialog(onDismiss = { showHelpDialog = false })
+    }
+    if (showSyncDialog) {
+        SupabaseSyncDialog(repository = repository, onDismiss = { showSyncDialog = false })
+    }
+    if (showSignOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirm = false },
+            containerColor = Surface,
+            shape = RoundedCornerShape(18.dp),
+            title = {
+                Text("Sign Out of PleuroTech?", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 18.sp)
+            },
+            text = {
+                Text(
+                    "You will need to sign in again to access farm records. Your local scans remain safely saved in offline SQLite.",
+                    color = TextMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        repository.authManager?.signOut()
+                        showSignOutConfirm = false
+                        onSignOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ScanResult.Reject.color),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Sign Out", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showSignOutConfirm = false },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Cancel", color = TextPrimary)
+                }
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp)
+    ) {
+        // Page Title: "Setting" with Back Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Surface)
+                    .border(1.dp, Border, CircleShape)
+            ) {
+                BackArrowIcon(color = TextPrimary, modifier = Modifier.size(16.dp))
+            }
+            Text(
+                text = "Setting",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+        }
+
+        // Section 1: Protection
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Protection",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            // Dark Mode item
+            SettingItemCard(
+                iconText = if (isDark) "🌙" else "☀️",
+                title = "Dark Mode",
+                subtitle = if (isDark) "Enabled" else "Disabled"
+            ) {
+                Switch(
+                    checked = isDark,
+                    onCheckedChange = onToggleDark,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = ScanResult.ClassA.color,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0xFFD4DBD4),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+            // Notifications item
+            SettingItemCard(
+                iconText = "🔔",
+                title = "Notifications",
+                subtitle = if (notificationsEnabled) "Manage alert preferences" else "Muted"
+            ) {
+                Switch(
+                    checked = notificationsEnabled,
+                    onCheckedChange = { notificationsEnabled = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = ScanResult.ClassA.color,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0xFFD4DBD4),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+        }
+
+        // Section 2: Privacy & Security
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Privacy & Security",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            // Cloud Sync (Supabase)
+            val sync = repository.syncManager
+            val pendingCount = sync?.getPendingCount() ?: 0
+            val syncSubtitle = if (pendingCount > 0) "$pendingCount offline scans pending sync" else "Multi-device cloud synchronization"
+            SettingItemCard(
+                iconText = "☁️",
+                title = "Cloud Sync (Supabase)",
+                subtitle = syncSubtitle,
+                onClick = { showSyncDialog = true }
+            ) {
+                ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+            }
+            // Privacy Controls
+            SettingItemCard(
+                iconText = "🔒",
+                title = "Privacy Controls",
+                subtitle = "Manage your data",
+                onClick = { showPrivacyDialog = true }
+            ) {
+                ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+            }
+            // Permissions
+            SettingItemCard(
+                iconText = "🛡️",
+                title = "Permissions",
+                subtitle = "Review app permissions",
+                onClick = { showPermissionsDialog = true }
+            ) {
+                ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+            }
+        }
+
+        // Section 3: Support
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Support",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            // Help & FAQ
+            SettingItemCard(
+                iconText = "❓",
+                title = "Help & FAQ",
+                subtitle = "Get answers",
+                onClick = { showHelpDialog = true }
+            ) {
+                ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+            }
+        }
+
+        // Section 4: Account & Profile
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "Account & Profile",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            val user = repository.authManager?.getCurrentUser()
+            // Profile Info Card
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Surface)
+                    .border(1.dp, Border, RoundedCornerShape(18.dp))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(ScanResult.ClassA.color.copy(alpha = 0.2f))
+                        .border(1.5.dp, ScanResult.ClassA.color, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = user?.name?.take(1)?.uppercase() ?: "W",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ScanResult.ClassA.color
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = user?.name ?: "Farm Inspector",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = user?.email ?: "worker@pleurotech.com",
+                        fontSize = 12.sp,
+                        color = TextMuted
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    StatusPill(label = user?.role ?: "Inspector", color = ScanResult.ClassA.color)
+                }
+            }
+
+            // Sign Out Card
+            SettingItemCard(
+                iconText = "🚪",
+                title = "Sign Out",
+                subtitle = "Log out from this mobile device",
+                onClick = { showSignOutConfirm = true }
+            ) {
+                Text("Log Out", color = ScanResult.Reject.color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun PrivacyControlsDialog(repository: PleuroTechRepository, onDismiss: () -> Unit) {
+    val counts = repository.counts()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("🔒", fontSize = 20.sp)
+                Text("Privacy & Data Controls", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "PleuroTech stores all mushroom inspection records and scan telemetry strictly on your local device for data privacy.",
+                    fontSize = 13.sp,
+                    color = TextMuted
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceAlt)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("LOCAL STORAGE METRICS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                    Text("Total Scans: ${counts.total} records", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    Text("Active Batch: ${repository.activeBatch.name}", fontSize = 12.sp, color = TextMuted)
+                    Text("Data Encryption: Local sandbox protected", fontSize = 12.sp, color = ScanResult.ClassA.color)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+            ) {
+                Text("Done", color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+private fun PermissionsDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("🛡️", fontSize = 20.sp)
+                Text("App Permissions", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(
+                    Triple("📷 Camera", "Granted", "Required for scanning QR labels & YOLOv8 grading"),
+                    Triple("🖨️ Printing Service", "Active", "Required for generating printable PDF QR sheets"),
+                    Triple("🔔 Notifications", "Granted", "Used for real-time contamination & harvest alerts"),
+                    Triple("📁 Storage", "Active", "Used for CSV data export & temporary report files")
+                ).forEach { (name, status, desc) ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SurfaceAlt)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                            Text(status, color = ScanResult.ClassA.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Text(desc, fontSize = 11.sp, color = TextMuted)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+            ) {
+                Text("Close", color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+private fun HelpFaqDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("❓", fontSize = 20.sp)
+                Text("Help & FAQ", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                listOf(
+                    "How does YOLOv8 classify mushrooms?" to "The deep learning model analyzes oyster mushroom cap shape, color saturation, and pinhead maturity to assign Class A, Class B, or Reject.",
+                    "What makes a mushroom Class A?" to "Smooth margins, convex/flat cap curvature, uniform oyster-white hue, and absence of bacterial blotch or green mold.",
+                    "How do I print QR bag tags?" to "Navigate to the Labels tab, select the number of labels or input a custom count, and tap 'Print QR Sheet' to open the Android print preview."
+                ).forEach { (q, a) ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SurfaceAlt)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(q, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                        Text(a, fontSize = 12.sp, color = TextMuted, lineHeight = 16.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+            ) {
+                Text("Understood", color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+private fun SupabaseSyncDialog(
+    repository: PleuroTechRepository,
+    onDismiss: () -> Unit
+) {
+    val sync = repository.syncManager
+    val scope = rememberCoroutineScope()
+    var isSyncing by remember { mutableStateOf(false) }
+    var isTesting by remember { mutableStateOf(false) }
+    var syncMessage by remember { mutableStateOf<String?>(null) }
+    var testMessage by remember { mutableStateOf<String?>(null) }
+
+    val pendingCount = sync?.getPendingCount() ?: 0
+    val isOnline = sync?.isOnline() ?: false
+    val lastSync = sync?.getLastSyncTime() ?: "Never"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("☁️", fontSize = 20.sp)
+                Text(
+                    text = "Cloud Synchronization",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Status overview card
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceAlt)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("NETWORK CONNECTION", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        StatusPill(
+                            label = if (isOnline) "Connected" else "Offline",
+                            color = if (isOnline) ScanResult.ClassA.color else ScanResult.Reject.color
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("MULTI-DEVICE SYNC", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        Text("Active (Private)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ScanResult.ClassA.color)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("PENDING UPLOADS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        Text(
+                            text = if (pendingCount > 0) "$pendingCount offline scans" else "0 pending",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (pendingCount > 0) ScanResult.ClassB.color else ScanResult.ClassA.color
+                        )
+                    }
+
+                    Text("Last synced: $lastSync", fontSize = 12.sp, color = TextMuted)
+                }
+
+                // Security Note Card
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceAlt.copy(alpha = 0.5f))
+                        .padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("🔒", fontSize = 16.sp)
+                    Text(
+                        text = "Cloud credentials are encrypted and embedded directly in the app code to protect farm database security.",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                // Action 1: Sync Now
+                Button(
+                    onClick = {
+                        if (sync != null) {
+                            isSyncing = true
+                            syncMessage = null
+                            testMessage = null
+                            scope.launch {
+                                val result = sync.syncNow()
+                                isSyncing = false
+                                when (result) {
+                                    is SyncResult.Success -> {
+                                        repository.refreshFromDb()
+                                        syncMessage = "✅ Successfully synchronized! Pushed ${result.pushedCount} scans, pulled ${result.pulledCount} from cloud."
+                                    }
+                                    is SyncResult.Offline -> {
+                                        syncMessage = "⚠️ Device is currently offline. Scans remain safely stored in local SQLite."
+                                    }
+                                    is SyncResult.NotConfigured -> {
+                                        syncMessage = "ℹ️ Cloud sync is ready."
+                                    }
+                                    is SyncResult.Error -> {
+                                        syncMessage = "❌ Sync error: ${result.message}"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isSyncing && !isTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+                ) {
+                    Text(
+                        if (isSyncing) "Syncing with Cloud..." else "Sync Now (Push & Pull)",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Action 2: Test Connection
+                OutlinedButton(
+                    onClick = {
+                        if (sync != null) {
+                            isTesting = true
+                            testMessage = null
+                            syncMessage = null
+                            scope.launch {
+                                val testRes = sync.testConnection()
+                                isTesting = false
+                                testMessage = if (testRes.isSuccess) {
+                                    "✅ Fully connected to Supabase cloud! Database is active and ready."
+                                } else {
+                                    "❌ Could not reach Supabase endpoint (${testRes.exceptionOrNull()?.message}). Check internet connection or project status."
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isSyncing && !isTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(if (isTesting) "Testing Connection..." else "Test Cloud Connection", color = TextPrimary)
+                }
+
+                if (syncMessage != null) {
+                    Text(syncMessage!!, fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                }
+                if (testMessage != null) {
+                    Text(testMessage!!, fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+            ) {
+                Text("Close", color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
 
 @Composable
@@ -378,8 +1438,9 @@ private fun ScanScreen(repository: PleuroTechRepository, onMockScan: () -> Unit)
 }
 
 @Composable
-private fun LabelsScreen(repository: PleuroTechRepository, onPrint: () -> Unit) {
+private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLabel>, String) -> Unit) {
     var labelCount by remember { mutableIntStateOf(24) }
+    var customText by remember { mutableStateOf("24") }
     val labels = repository.bagLabels(labelCount)
     val batch = repository.activeBatch
 
@@ -408,20 +1469,221 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: () -> Unit) 
                 }
                 StatusPill("${labels.size}/${batch.targetBagCount}", ScanResult.ClassA.color)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionLabel("Print Quantity")
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 listOf(12, 24, 48, batch.targetBagCount).forEach { count ->
-                    AssistantChip(
-                        title = if (count == batch.targetBagCount) "All" else count.toString(),
-                        onClick = { labelCount = count }
+                    val isAll = count == batch.targetBagCount
+                    val chipTitle = if (isAll) "All" else count.toString()
+                    val isSelected = labelCount == count
+                    val bg by animateColorAsState(
+                        targetValue = if (isSelected) ScanResult.ClassA.color.copy(alpha = 0.2f) else SurfaceAlt,
+                        label = "chipBg"
+                    )
+                    val border by animateColorAsState(
+                        targetValue = if (isSelected) ScanResult.ClassA.color else Border,
+                        label = "chipBorder"
+                    )
+                    val textColor by animateColorAsState(
+                        targetValue = if (isSelected) ScanResult.ClassA.color else TextPrimary,
+                        label = "chipText"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(bg)
+                            .border(1.dp, border, RoundedCornerShape(10.dp))
+                            .clickable {
+                                labelCount = count
+                                customText = count.toString()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = chipTitle,
+                            color = textColor,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
+            /* ── Stable Stepper & Numeric Input Row ── */
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SurfaceAlt.copy(alpha = 0.5f))
+                    .border(1.dp, Border, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Decrement button (−)
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (labelCount > 1) Surface else SurfaceAlt)
+                        .border(1.dp, if (labelCount > 1) Border else Color.Transparent, CircleShape)
+                        .clickable(enabled = labelCount > 1) {
+                            val next = (labelCount - 1).coerceAtLeast(1)
+                            labelCount = next
+                            customText = next.toString()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "−",
+                        color = if (labelCount > 1) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Middle: Clean numeric input display
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Surface)
+                        .border(1.dp, ScanResult.ClassA.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    BasicTextField(
+                        value = customText,
+                        onValueChange = { text ->
+                            val digits = text.filter { it.isDigit() }.take(3)
+                            customText = digits
+                            digits.toIntOrNull()?.let { n ->
+                                labelCount = n.coerceIn(1, batch.targetBagCount)
+                            }
+                        },
+                        textStyle = LocalTextStyle.current.copy(
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.widthIn(min = 36.dp, max = 64.dp),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.Center) {
+                                if (customText.isEmpty()) {
+                                    Text(
+                                        "0",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMuted.copy(alpha = 0.35f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "labels",
+                        color = TextMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Increment button (+)
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (labelCount < batch.targetBagCount) Surface else SurfaceAlt)
+                        .border(1.dp, if (labelCount < batch.targetBagCount) Border else Color.Transparent, CircleShape)
+                        .clickable(enabled = labelCount < batch.targetBagCount) {
+                            val next = (labelCount + 1).coerceAtMost(batch.targetBagCount)
+                            labelCount = next
+                            customText = next.toString()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "+",
+                        color = if (labelCount < batch.targetBagCount) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
-            Button(
+
+            // Quick increment helpers row
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = onPrint,
-                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Prepare Printable QR Sheet")
+                Text(
+                    "Range: 1 to ${batch.targetBagCount} bags",
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(5, 10, 20).forEach { step ->
+                        Text(
+                            text = "+$step",
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SurfaceAlt)
+                                .border(1.dp, Border, RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val next = (labelCount + step).coerceAtMost(batch.targetBagCount)
+                                    labelCount = next
+                                    customText = next.toString()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(2.dp))
+
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                onClick = { onPrint(labels, batch.name) },
+                enabled = labels.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ScanResult.ClassA.color,
+                    disabledContainerColor = ScanResult.ClassA.color.copy(alpha = 0.4f)
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("🖨️", fontSize = 16.sp)
+                    Text(
+                        "Print ${labels.size} QR Labels",
+                        color = Color(0xFF155E2B),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
             }
         }
         DataCard {
@@ -482,29 +1744,32 @@ private fun HistoryScreen(
                 Text("Next")
             }
         }
-        DataCard {
-            Row(
+        val isOwner = repository.authManager?.getCurrentUser()?.isOwner ?: true
+        if (isOwner) {
+            DataCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Export data", color = TextPrimary, fontWeight = FontWeight.Medium)
+                        Text("Create CSV with batch, shelf, QR, AI result, final result, and verification state", color = TextMuted, fontSize = 12.sp)
+                    }
+                    OutlinedButton(onClick = onExport) {
+                        Text("Export")
+                    }
+                }
+            }
+            OutlinedButton(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                onClick = {
+                    onClear()
+                    page = 1
+                }
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Export data", color = TextPrimary, fontWeight = FontWeight.Medium)
-                    Text("Create CSV with batch, shelf, QR, AI result, final result, and verification state", color = TextMuted, fontSize = 12.sp)
-                }
-                OutlinedButton(onClick = onExport) {
-                    Text("Export")
-                }
+                Text("Clear Demo Data")
             }
-        }
-        OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                onClear()
-                page = 1
-            }
-        ) {
-            Text("Clear Demo Data")
         }
     }
 }
@@ -582,6 +1847,9 @@ private fun AssistantScreen(repository: PleuroTechRepository) {
             )
         )
     }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
     fun sendPrompt(prompt: String) {
         val cleaned = prompt.trim()
@@ -589,49 +1857,196 @@ private fun AssistantScreen(repository: PleuroTechRepository) {
         messages.add(AssistantMessage(MessageSender.User, cleaned))
         messages.add(AssistantMessage(MessageSender.Assistant, assistant.answer(cleaned, repository)))
         input = ""
+        scope.launch {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(AppBackground)
     ) {
-        PageTitle("AI Assistant", "Scan insights and quality recommendations")
-        AssistantSummary(repository = repository)
-        AiCommandCenter(brief = assistant.brief(repository), compact = false)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            assistant.suggestions().forEach { suggestion ->
-                AssistantChip(title = suggestion.title, onClick = { sendPrompt(suggestion.prompt) })
+        /* ── Header ── */
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PageTitle("AI Assistant", "Scan insights and quality recommendations")
+            val insights = repository.insights(7)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Surface)
+                    .border(1.dp, Border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Quality Copilot", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        "Risk ${insights.riskLevel.lowercase()} · ${"%,.1f".format(insights.rejectRate)}% rejects · ${insights.scanCount} scans",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                StatusPill(insights.trendDirection, riskColor(insights.riskLevel))
             }
         }
+
+        /* ── Chat messages ── */
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 12.dp)
         ) {
             items(messages.size) { index ->
                 AssistantBubble(message = messages[index])
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+
+        /* ── Bottom Input & AI Buttons Container ── */
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Surface)
+                .border(
+                    width = 1.dp,
+                    color = Border,
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                )
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .imePadding()
+                .padding(top = 10.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                modifier = Modifier.weight(1f),
-                value = input,
-                onValueChange = { input = it },
-                placeholder = { Text("Ask about rejects, trends, or latest scan") },
-                singleLine = true
-            )
-            Button(
-                onClick = { sendPrompt(input) },
-                colors = ButtonDefaults.buttonColors(containerColor = InfoBlue)
+            /* ── AI Suggestion Chips (Horizontal Smooth Scroll) ── */
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Ask")
+                val icons = listOf("📊", "⚠️", "🔍", "⚡", "💡")
+                val suggestions = assistant.suggestions()
+                items(suggestions.size) { index ->
+                    val suggestion = suggestions[index]
+                    AiSuggestionChip(
+                        title = suggestion.title,
+                        icon = icons.getOrElse(index) { "•" },
+                        onClick = {
+                            focusManager.clearFocus()
+                            sendPrompt(suggestion.prompt)
+                        }
+                    )
+                }
+            }
+
+            /* ── Typing Bar Row ── */
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.weight(1f),
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = {
+                        Text(
+                            "Ask AI about rejects, batch risk, advice…",
+                            fontSize = 13.sp,
+                            color = TextMuted
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(26.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = SurfaceAlt.copy(alpha = 0.35f),
+                        unfocusedContainerColor = SurfaceAlt.copy(alpha = 0.25f),
+                        focusedBorderColor = InfoBlue,
+                        unfocusedBorderColor = Border,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = InfoBlue
+                    ),
+                    trailingIcon = {
+                        AnimatedVisibility(
+                            visible = input.isNotEmpty(),
+                            enter = fadeIn() + scaleIn(),
+                            exit = fadeOut() + scaleOut()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(TextMuted.copy(alpha = 0.15f))
+                                    .clickable { input = "" },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                ClearIcon(color = TextMuted, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (input.isNotBlank()) {
+                                focusManager.clearFocus()
+                                sendPrompt(input)
+                            }
+                        }
+                    )
+                )
+
+                val isReady = input.isNotBlank()
+                val sendBg by animateColorAsState(
+                    targetValue = if (isReady) InfoBlue else SurfaceAlt,
+                    label = "sendBg"
+                )
+                val sendContentColor by animateColorAsState(
+                    targetValue = if (isReady) Color.White else TextMuted.copy(alpha = 0.45f),
+                    label = "sendContentColor"
+                )
+                val sendScale by animateFloatAsState(
+                    targetValue = if (isReady) 1.0f else 0.92f,
+                    label = "sendScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .scale(sendScale)
+                        .clip(CircleShape)
+                        .background(sendBg)
+                        .border(
+                            1.dp,
+                            if (isReady) InfoBlue.copy(alpha = 0.3f) else Border,
+                            CircleShape
+                        )
+                        .clickable(enabled = isReady) {
+                            focusManager.clearFocus()
+                            sendPrompt(input)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    SendIcon(
+                        color = sendContentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -850,24 +2265,136 @@ private fun RecommendationRow(recommendation: AiRecommendation) {
 }
 
 @Composable
-private fun AssistantChip(title: String, onClick: () -> Unit) {
+private fun AssistantChip(title: String, selected: Boolean = false, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        targetValue = if (selected) ScanResult.ClassA.color.copy(alpha = 0.18f) else SurfaceAlt,
+        label = "chipBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) ScanResult.ClassA.color.copy(alpha = 0.45f) else Border,
+        label = "chipBorder"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (selected) ScanResult.ClassA.color else TextPrimary,
+        label = "chipText"
+    )
     Text(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(SurfaceAlt)
-            .border(1.dp, Border, RoundedCornerShape(50))
+            .background(bg)
+            .border(1.dp, borderColor, RoundedCornerShape(50))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         text = title,
-        color = TextPrimary,
+        color = textColor,
         fontSize = 12.sp,
-        fontWeight = FontWeight.Medium
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        maxLines = 1,
+        softWrap = false
     )
+}
+
+@Composable
+private fun AiSuggestionChip(
+    title: String,
+    icon: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Surface)
+            .border(1.dp, Border, RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(InfoBlue.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(icon, fontSize = 11.sp)
+        }
+        Text(
+            text = title,
+            color = TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun SendIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = 2.2.dp.toPx()
+        val centerX = size.width / 2f
+        val topY = size.height * 0.2f
+        val bottomY = size.height * 0.78f
+        val wing = size.width * 0.22f
+
+        // Stem
+        drawLine(
+            color = color,
+            start = Offset(centerX, bottomY),
+            end = Offset(centerX, topY),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+        // Left diagonal
+        drawLine(
+            color = color,
+            start = Offset(centerX - wing, topY + wing),
+            end = Offset(centerX, topY),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+        // Right diagonal
+        drawLine(
+            color = color,
+            start = Offset(centerX + wing, topY + wing),
+            end = Offset(centerX, topY),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
+private fun ClearIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = 1.8.dp.toPx()
+        val inset = size.width * 0.26f
+        drawLine(
+            color = color,
+            start = Offset(inset, inset),
+            end = Offset(size.width - inset, size.height - inset),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width - inset, inset),
+            end = Offset(inset, size.height - inset),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+    }
 }
 
 @Composable
 private fun AssistantBubble(message: AssistantMessage) {
     val isUser = message.sender == MessageSender.User
+    val bubbleShape = RoundedCornerShape(
+        topStart = 16.dp,
+        topEnd = 16.dp,
+        bottomStart = if (isUser) 16.dp else 4.dp,
+        bottomEnd = if (isUser) 4.dp else 16.dp
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
@@ -875,30 +2402,30 @@ private fun AssistantBubble(message: AssistantMessage) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.86f)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 8.dp,
-                        topEnd = 8.dp,
-                        bottomStart = if (isUser) 8.dp else 2.dp,
-                        bottomEnd = if (isUser) 2.dp else 8.dp
-                    )
-                )
-                .background(if (isUser) InfoBlue.copy(alpha = 0.22f) else Surface)
-                .border(
-                    1.dp,
-                    if (isUser) InfoBlue.copy(alpha = 0.35f) else Border,
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(12.dp)
+                .clip(bubbleShape)
+                .background(if (isUser) InfoBlue.copy(alpha = 0.12f) else Surface)
+                .border(1.dp, if (isUser) InfoBlue.copy(alpha = 0.25f) else Border, bubbleShape)
+                .padding(14.dp)
         ) {
-            Text(
-                text = if (isUser) "You" else "Pleuro AI",
-                color = if (isUser) InfoBlue else ScanResult.ClassA.color,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(message.text, color = TextPrimary, fontSize = 13.sp, lineHeight = 18.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isUser) InfoBlue else ScanResult.ClassA.color)
+                )
+                Text(
+                    text = if (isUser) "You" else "Pleuro AI",
+                    color = if (isUser) InfoBlue else ScanResult.ClassA.color,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(message.text, color = TextPrimary, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
@@ -1288,12 +2815,12 @@ private fun PrintableQrLabel(label: BagLabel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Text("PleuroTech", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text("PleuroTech", color = Color(0xFF1D2D22), fontWeight = FontWeight.Bold, fontSize = 13.sp)
         QrCode(payload = label.qrPayload, modifier = Modifier.size(104.dp))
-        Text(label.batchId, color = TextMuted, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+        Text(label.batchId, color = Color(0xFF607067), fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
         Text(
             "Bag ${label.bagNumber.toString().padStart(3, '0')} | Shelf ${label.shelfCode}",
-            color = TextPrimary,
+            color = Color(0xFF1D2D22),
             fontWeight = FontWeight.SemiBold,
             fontSize = 11.sp,
             maxLines = 1
@@ -1489,6 +3016,8 @@ private fun InsightCard(
 
 @Composable
 private fun QualityScoreRing(score: Float) {
+    val trackColor = SurfaceAlt
+    val progressColor = qualityColor(score)
     Box(
         modifier = Modifier.size(98.dp),
         contentAlignment = Alignment.Center
@@ -1496,14 +3025,14 @@ private fun QualityScoreRing(score: Float) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val stroke = 10.dp.toPx()
             drawArc(
-                color = SurfaceAlt,
+                color = trackColor,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
                 style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
             drawArc(
-                color = qualityColor(score),
+                color = progressColor,
                 startAngle = -90f,
                 sweepAngle = 360f * (score / 100f).coerceIn(0f, 1f),
                 useCenter = false,
@@ -1593,10 +3122,11 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
 
 @Composable
 private fun DailyTotalsBars(trend: List<DailyTrend>) {
+    val barColor = InfoBlue.copy(alpha = 0.45f)
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(160.dp)
+            .height(180.dp)
     ) {
         val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
         val gap = 10.dp.toPx()
@@ -1604,7 +3134,7 @@ private fun DailyTotalsBars(trend: List<DailyTrend>) {
         trend.forEachIndexed { index, day ->
             val h = size.height * day.total / maxTotal
             drawRoundRect(
-                color = InfoBlue.copy(alpha = 0.45f),
+                color = barColor,
                 topLeft = Offset(index * (barWidth + gap), size.height - h),
                 size = Size(barWidth, h),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
@@ -1615,6 +3145,7 @@ private fun DailyTotalsBars(trend: List<DailyTrend>) {
 
 @Composable
 private fun RejectRateLineChart(trend: List<DailyTrend>) {
+    val pointSurface = Surface
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
@@ -1647,7 +3178,7 @@ private fun RejectRateLineChart(trend: List<DailyTrend>) {
             )
         }
         points.forEach { point ->
-            drawCircle(color = Surface, radius = 6.dp.toPx(), center = point)
+            drawCircle(color = pointSurface, radius = 6.dp.toPx(), center = point)
             drawCircle(color = ScanResult.Reject.color, radius = 4.dp.toPx(), center = point)
         }
     }
@@ -1752,6 +3283,7 @@ private fun AppTab.iconLabel(): String = when (this) {
     AppTab.History -> "L"
     AppTab.Analytics -> "A"
     AppTab.Assistant -> "AI"
+    AppTab.Settings -> "S"
 }
 
 private fun riskColor(level: String): Color = when (level) {
@@ -1772,6 +3304,7 @@ private fun priorityLabel(priority: AssistantPriority): String = when (priority)
     AssistantPriority.Stable -> "OK"
 }
 
+@Composable
 private fun forecastColor(forecast: HarvestForecast): Color = when {
     forecast.expectedScansTomorrow == 0 -> TextMuted
     forecast.projectedRejectRate >= 18f -> ScanResult.Reject.color
@@ -1779,6 +3312,7 @@ private fun forecastColor(forecast: HarvestForecast): Color = when {
     else -> ScanResult.ClassA.color
 }
 
+@Composable
 private fun readinessColor(score: Float): Color = when {
     score >= 85f -> ScanResult.ClassA.color
     score >= 70f -> InfoBlue
@@ -1790,6 +3324,7 @@ private fun forecastWeight(value: Int, total: Int): Float {
     return max(0.0001f, value.coerceAtLeast(0).toFloat() / total)
 }
 
+@Composable
 private fun shelfStatusColor(shelf: ShelfSummary): Color = when (shelf.status) {
     "Isolate" -> ScanResult.Reject.color
     "Watch" -> ScanResult.ClassB.color
@@ -1802,3 +3337,4 @@ private fun qualityColor(score: Float): Color = when {
     score >= 70f -> ScanResult.ClassB.color
     else -> ScanResult.Reject.color
 }
+//pleurotech team copyright original code don't steal

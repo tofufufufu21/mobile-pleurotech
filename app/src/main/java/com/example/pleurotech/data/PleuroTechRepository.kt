@@ -1,11 +1,18 @@
 package com.example.pleurotech.data
 
+import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
+import com.example.pleurotech.data.auth.SupabaseAuthManager
+import com.example.pleurotech.data.local.PleuroTechDbHelper
+import com.example.pleurotech.data.sync.SupabaseSyncManager
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.random.Random
 
-class PleuroTechRepository private constructor(
+class PleuroTechRepository(
+    val dbHelper: PleuroTechDbHelper? = null,
+    val syncManager: SupabaseSyncManager? = null,
+    val authManager: SupabaseAuthManager? = null,
     initialScans: List<ScanRecord>,
     initialBatches: List<MushroomBatch>
 ) {
@@ -190,20 +197,19 @@ class PleuroTechRepository private constructor(
         shelfCode: String = shelfCodeForBag(bagNumber)
     ) {
         val id = nextScanId++
-        scans.add(
-            0,
-            ScanRecord(
-                id = id,
-                bagNumber = bagNumber,
-                result = result,
-                confidence = confidence.coerceIn(0f, 1f),
-                timestamp = timestamp,
-                batchId = batchId,
-                shelfCode = shelfCode,
-                qrPayload = bagQrPayload(batchId, bagNumber),
-                aiExplanation = explanationFor(result, confidence, shelfCode)
-            )
+        val record = ScanRecord(
+            id = id,
+            bagNumber = bagNumber,
+            result = result,
+            confidence = confidence.coerceIn(0f, 1f),
+            timestamp = timestamp,
+            batchId = batchId,
+            shelfCode = shelfCode,
+            qrPayload = bagQrPayload(batchId, bagNumber),
+            aiExplanation = explanationFor(result, confidence, shelfCode)
         )
+        scans.add(0, record)
+        dbHelper?.insertScan(record, PleuroTechDbHelper.SYNC_PENDING)
     }
 
     fun addMockScan() {
@@ -224,6 +230,7 @@ class PleuroTechRepository private constructor(
 
     fun clear() {
         scans.clear()
+        dbHelper?.clearAll()
     }
 
     fun verifyScan(scanId: Int, result: ScanResult) {
@@ -233,6 +240,16 @@ class PleuroTechRepository private constructor(
                 verified = true,
                 verifiedResult = result
             )
+            dbHelper?.updateScanResult(scanId, result)
+        }
+    }
+
+    fun refreshFromDb() {
+        dbHelper?.let { db ->
+            val fresh = db.getAllScans()
+            scans.clear()
+            scans.addAll(fresh)
+            nextScanId = (fresh.maxOfOrNull { it.id } ?: 0) + 1
         }
     }
 
@@ -338,9 +355,50 @@ class PleuroTechRepository private constructor(
     }
 
     companion object {
-        fun empty(): PleuroTechRepository = PleuroTechRepository(emptyList(), listOf(defaultBatch()))
+        fun create(context: Context): PleuroTechRepository {
+            val db = PleuroTechDbHelper(context)
+            val sync = SupabaseSyncManager(context, db)
+            val auth = SupabaseAuthManager(db)
+
+            // Auto-seed if SQLite is fresh and empty
+            if (db.countTotalScans() == 0) {
+                val seedBatch = defaultBatch()
+                db.insertOrUpdateBatch(seedBatch)
+                val seedScans = generateSeedScans(seedBatch)
+                db.insertScansBatch(seedScans, PleuroTechDbHelper.SYNC_PENDING)
+            }
+
+            val batches = db.getAllBatches().ifEmpty { listOf(defaultBatch()) }
+            val scans = db.getAllScans()
+
+            return PleuroTechRepository(
+                dbHelper = db,
+                syncManager = sync,
+                authManager = auth,
+                initialScans = scans,
+                initialBatches = batches
+            )
+        }
+
+        fun empty(): PleuroTechRepository = PleuroTechRepository(
+            dbHelper = null,
+            syncManager = null,
+            initialScans = emptyList(),
+            initialBatches = listOf(defaultBatch())
+        )
 
         fun seeded(): PleuroTechRepository {
+            val seedBatch = defaultBatch()
+            val seedScans = generateSeedScans(seedBatch)
+            return PleuroTechRepository(
+                dbHelper = null,
+                syncManager = null,
+                initialScans = seedScans,
+                initialBatches = listOf(seedBatch)
+            )
+        }
+
+        private fun generateSeedScans(batch: MushroomBatch): List<ScanRecord> {
             val now = LocalDateTime.now()
             var scanId = 1
             val results = listOf(
@@ -363,14 +421,14 @@ class PleuroTechRepository private constructor(
                         result = result,
                         confidence = Random.nextDouble(0.75, 0.99).toFloat(),
                         timestamp = day.withHour(Random.nextInt(6, 19)).withMinute(Random.nextInt(0, 60)).withSecond(0),
-                        batchId = defaultBatch().id,
+                        batchId = batch.id,
                         shelfCode = "A1",
-                        qrPayload = "pleurotech://batch/${defaultBatch().id}/bag/${(scanId - 1).toString().padStart(3, '0')}"
+                        qrPayload = "pleurotech://batch/${batch.id}/bag/${(scanId - 1).toString().padStart(3, '0')}"
                     )
                 }
             }
 
-            val enrichedScans = scans.map {
+            return scans.map {
                 it.copy(
                     shelfCode = shelfForSeed(it.bagNumber),
                     qrPayload = "pleurotech://batch/${it.batchId}/bag/${it.bagNumber.toString().padStart(3, '0')}",
@@ -381,8 +439,6 @@ class PleuroTechRepository private constructor(
                     }
                 )
             }
-
-            return PleuroTechRepository(enrichedScans, listOf(defaultBatch()))
         }
 
         private fun defaultBatch(): MushroomBatch = MushroomBatch(
