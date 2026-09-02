@@ -3,11 +3,17 @@ package com.example.pleurotech.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,14 +30,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
@@ -56,8 +65,11 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -78,6 +90,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -86,6 +99,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import com.example.pleurotech.ai.AiBrief
@@ -110,8 +126,38 @@ import com.example.pleurotech.data.sync.SyncResult
 import com.example.pleurotech.ui.theme.PleurotechTheme
 import com.example.pleurotech.util.QrLabelPrinter
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.EncodeHintType
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.GlobalHistogramBinarizer
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeReader
 import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.layout.ContentScale
+import java.util.Calendar
+import com.example.pleurotech.data.auth.UserProfile
+import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.example.pleurotech.ml.DiseaseAlarmManager
+import com.example.pleurotech.ml.YoloV8Detector
+import com.example.pleurotech.ml.InferenceSummary
+import com.example.pleurotech.ml.MushroomDetection
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -177,11 +223,18 @@ val InfoBlue: Color
 enum class AppTab(val title: String) {
     Dashboard("Dashboard"),
     Scan("Scan"),
+    Records("Records"),
+    Assistant("AI"),
     Labels("Labels"),
     History("History"),
     Analytics("Analytics"),
-    Assistant("AI"),
     Settings("Settings")
+}
+
+enum class RecordsSubTab(val title: String, val icon: String) {
+    History("Scan Logs", "📋"),
+    Analytics("Analytics", "📊"),
+    Labels("QR Labels", "🏷️")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -218,17 +271,18 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
             } else {
                 val currentUser = repository.authManager?.getCurrentUser()
                 val isOwner = currentUser?.isOwner ?: true
+                var recordsSubTab by remember { mutableStateOf(RecordsSubTab.History) }
 
                 val navTabs = remember(isOwner) {
                     if (isOwner) {
-                        listOf(AppTab.Dashboard, AppTab.Scan, AppTab.Labels, AppTab.History, AppTab.Analytics, AppTab.Assistant)
+                        listOf(AppTab.Dashboard, AppTab.Scan, AppTab.Records, AppTab.Assistant)
                     } else {
-                        listOf(AppTab.Scan, AppTab.History)
+                        listOf(AppTab.Scan, AppTab.Records)
                     }
                 }
 
                 androidx.compose.runtime.LaunchedEffect(currentUser) {
-                    if (!isOwner && selectedTab != AppTab.Scan && selectedTab != AppTab.History) {
+                    if (!isOwner && selectedTab != AppTab.Scan && selectedTab != AppTab.Records) {
                         selectedTab = AppTab.Scan
                     }
                 }
@@ -239,11 +293,17 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                     bottomBar = {
                         NavigationBar(containerColor = Surface) {
                             navTabs.forEach { tab ->
+                                val isSelected = selectedTab == tab || (tab == AppTab.Records && (selectedTab == AppTab.History || selectedTab == AppTab.Analytics || selectedTab == AppTab.Labels))
                                 NavigationBarItem(
-                                    selected = selectedTab == tab,
-                                    onClick = { selectedTab = tab },
-                                    icon = { Text(tab.iconLabel(), fontWeight = FontWeight.Bold) },
-                                    label = { Text(tab.title) },
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedTab = tab
+                                        if (tab == AppTab.Records) {
+                                            recordsSubTab = RecordsSubTab.History
+                                        }
+                                    },
+                                    icon = { Text(tab.iconLabel(), fontSize = 18.sp) },
+                                    label = { Text(tab.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, maxLines = 1, softWrap = false) },
                                 )
                             }
                         }
@@ -257,36 +317,56 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                     ) {
                         AppHeader(
                             selectedTab = selectedTab,
-                            onSelectTab = { selectedTab = it },
+                            onSelectTab = { tab ->
+                                when (tab) {
+                                    AppTab.History -> {
+                                        selectedTab = AppTab.Records
+                                        recordsSubTab = RecordsSubTab.History
+                                    }
+                                    AppTab.Analytics -> {
+                                        selectedTab = AppTab.Records
+                                        recordsSubTab = RecordsSubTab.Analytics
+                                    }
+                                    AppTab.Labels -> {
+                                        selectedTab = AppTab.Records
+                                        recordsSubTab = RecordsSubTab.Labels
+                                    }
+                                    else -> selectedTab = tab
+                                }
+                            },
                             onOpenSettings = { selectedTab = AppTab.Settings },
                             repository = repository
                         )
                         when (selectedTab) {
                             AppTab.Dashboard -> DashboardScreen(
                                 repository = repository,
-                                onOpenHistory = { selectedTab = AppTab.History },
+                                onOpenHistory = {
+                                    selectedTab = AppTab.Records
+                                    recordsSubTab = RecordsSubTab.History
+                                },
                                 onOpenScan = { selectedTab = AppTab.Scan }
-                            ) { repository.addMockScan() }
+                            )
                             AppTab.Scan -> ScanScreen(
                                 repository = repository,
-                                onMockScan = { repository.addMockScan() }
+                                onOpenAssistant = { selectedTab = AppTab.Assistant }
                             )
-                            AppTab.Labels -> LabelsScreen(
+                            AppTab.Records, AppTab.History, AppTab.Analytics, AppTab.Labels -> RecordsScreen(
                                 repository = repository,
-                                onPrint = { labels, batchName ->
-                                    QrLabelPrinter(context).print(labels, batchName)
-                                    scope.launch { snackbarHostState.showSnackbar("Printing ${labels.size} QR labels…") }
-                                }
-                            )
-                            AppTab.History -> HistoryScreen(
-                                repository = repository,
+                                subTab = recordsSubTab,
+                                onSubTabChanged = { recordsSubTab = it },
                                 onExport = {
                                     val lines = repository.exportCsv().lineSequence().count()
                                     scope.launch { snackbarHostState.showSnackbar("CSV ready with $lines lines") }
                                 },
-                                onClear = { repository.clear() }
+                                onClear = {
+                                    repository.clear(context)
+                                    scope.launch { snackbarHostState.showSnackbar("All scans and batch data reset fresh.") }
+                                },
+                                onPrintLabels = { labels, batchName ->
+                                    QrLabelPrinter(context).print(labels, batchName)
+                                    scope.launch { snackbarHostState.showSnackbar("Printing ${labels.size} QR labels…") }
+                                }
                             )
-                            AppTab.Analytics -> AnalyticsScreen(repository = repository)
                             AppTab.Assistant -> AssistantScreen(repository = repository)
                             AppTab.Settings -> SettingsScreen(
                                 isDark = isDark,
@@ -1197,11 +1277,21 @@ private fun SupabaseSyncDialog(
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
                 ) {
-                    Text(
-                        if (isSyncing) "Syncing with Cloud..." else "Sync Now (Push & Pull)",
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (isSyncing) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Text("Syncing with Cloud...", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Text("Sync Now (Push & Pull)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 // Action 2: Test Connection
@@ -1226,7 +1316,21 @@ private fun SupabaseSyncDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(if (isTesting) "Testing Connection..." else "Test Cloud Connection", color = TextPrimary)
+                    if (isTesting) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = TextPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Text("Testing Connection...", color = TextPrimary)
+                        }
+                    } else {
+                        Text("Test Cloud Connection", color = TextPrimary)
+                    }
                 }
 
                 if (syncMessage != null) {
@@ -1253,8 +1357,7 @@ private fun SupabaseSyncDialog(
 private fun DashboardScreen(
     repository: PleuroTechRepository,
     onOpenHistory: () -> Unit,
-    onOpenScan: () -> Unit,
-    onMockScan: () -> Unit
+    onOpenScan: () -> Unit
 ) {
     val counts = repository.counts()
     val recent = repository.recentScans()
@@ -1262,22 +1365,37 @@ private fun DashboardScreen(
     val trend = repository.trend()
     val alerts = repository.contaminationAlerts()
 
+    var inspectionModalScan by remember { mutableStateOf<ScanRecord?>(null) }
+    var selectedShelfForModal by remember { mutableStateOf<ShelfSummary?>(null) }
+
+    if (inspectionModalScan != null) {
+        InspectionDetailModal(
+            scan = inspectionModalScan!!,
+            onDismiss = { inspectionModalScan = null }
+        )
+    }
+
+    if (selectedShelfForModal != null) {
+        ShelfDetailModal(
+            shelf = selectedShelfForModal!!,
+            scans = repository.scansForShelf(selectedShelfForModal!!.shelfCode),
+            onDismiss = { selectedShelfForModal = null }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            BatchStatusPanel(repository = repository)
+            WelcomeUserBanner(
+                user = repository.authManager?.getCurrentUser(),
+                batchName = repository.activeBatch.name
+            )
         }
         item {
-            SectionLabel("Mobile Scan")
-            Spacer(Modifier.height(8.dp))
-            MobileScanPanel(
-                primaryLabel = "Open Scanner",
-                onPrimary = onOpenScan,
-                onSecondary = onMockScan
-            )
+            BatchStatusPanel(repository = repository)
         }
         item {
             SectionLabel("Today's Grading Results")
@@ -1297,7 +1415,10 @@ private fun DashboardScreen(
             ContaminationAlertPanel(alerts = alerts)
         }
         item {
-            ShelfMapPanel(shelves = repository.shelfMap())
+            ShelfMapPanel(
+                shelves = repository.shelfMap(),
+                onSelectShelf = { selectedShelfForModal = it }
+            )
         }
         item {
             ChartCard(title = "Premium Yield Trend", subtitle = "Last 7 days") {
@@ -1308,98 +1429,1549 @@ private fun DashboardScreen(
             SectionLabel("Recent Scans")
             Spacer(Modifier.height(8.dp))
             DataCard {
-                ScanRows(scans = recent, compact = true)
+                ScanRows(
+                    scans = recent,
+                    compact = true,
+                    onSelectScan = { inspectionModalScan = it }
+                )
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     modifier = Modifier.weight(1f),
-                    onClick = onMockScan,
-                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+                    onClick = onOpenScan,
+                    colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
                 ) {
-                    Text("Simulate Scan")
+                    Text("📷 Start Real Scan")
                 }
                 OutlinedButton(onClick = onOpenHistory) {
-                    Text("View All")
+                    Text("View History")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WelcomeUserBanner(
+    user: UserProfile?,
+    batchName: String
+) {
+    val greeting = remember {
+        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            in 17..21 -> "Good evening"
+            else -> "Welcome back"
+        }
+    }
+    val displayName = user?.name ?: "Farm Operator"
+    val role = user?.role ?: "Farm Owner"
+    val initials = remember(displayName) {
+        displayName.split(" ")
+            .filter { it.isNotEmpty() }
+            .take(2)
+            .map { it.first().uppercase() }
+            .joinToString("")
+            .ifEmpty { "PT" }
+    }
+
+    DataCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(ScanResult.ClassA.color.copy(alpha = 0.15f))
+                        .border(1.5.dp, ScanResult.ClassA.color, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = initials,
+                        color = ScanResult.ClassA.color,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "$greeting, $displayName 👋",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                    Text(
+                        text = "$role · Active Batch: $batchName",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+enum class QrType {
+    Identification, // QR 1 (Step 1)
+    Confirmation   // QR 2 (Step 3)
+}
+
+data class ParsedQrBag(
+    val batchId: String,
+    val bagNumber: Int,
+    val shelfCode: String,
+    val qrType: QrType = QrType.Identification
+)
+
+fun parseQrPayload(payload: String, repository: PleuroTechRepository): ParsedQrBag? {
+    return try {
+        val trimmed = payload.trim()
+        val bagNum = when {
+            trimmed.contains("/bag/") -> trimmed.substringAfter("/bag/").substringBefore("/").toIntOrNull()
+            trimmed.contains("/scan/") -> trimmed.substringAfter("/scan/").substringBefore("/").toIntOrNull()
+            trimmed.startsWith("BAG-", ignoreCase = true) -> trimmed.substringAfter("-").substringBefore("-").substringBefore("/").toIntOrNull()
+            else -> trimmed.filter { it.isDigit() }.toIntOrNull()
+        } ?: return null
+
+        val batchId = if (trimmed.contains("://") && trimmed.contains("/bag/")) {
+            trimmed.substringAfter("://").substringBefore("/bag/")
+        } else {
+            repository.activeBatch.id
+        }
+
+        val qrType = if (trimmed.contains("/confirm", ignoreCase = true) ||
+            trimmed.contains(":confirm", ignoreCase = true) ||
+            trimmed.contains("-confirm", ignoreCase = true) ||
+            trimmed.contains("confirm", ignoreCase = true)
+        ) {
+            QrType.Confirmation
+        } else {
+            QrType.Identification
+        }
+
+        ParsedQrBag(
+            batchId = batchId,
+            bagNumber = bagNum,
+            shelfCode = repository.shelfCodeForBag(bagNum),
+            qrType = qrType
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun decodeQrFromBitmap(bitmap: Bitmap): String? {
+    val decodeHints = mapOf(
+        DecodeHintType.TRY_HARDER to true,
+        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)
+    )
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val source = RGBLuminanceSource(width, height, pixels)
+
+    // Pass 1: HybridBinarizer (standard high-contrast and normal lighting)
+    try {
+        val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
+        return QRCodeReader().decode(binaryBitmap, decodeHints).text
+    } catch (_: Exception) {}
+
+    // Pass 2: GlobalHistogramBinarizer (far superior for dark shadows, reflections, and greenhouse lighting)
+    try {
+        val binaryBitmap = BinaryBitmap(GlobalHistogramBinarizer(source))
+        return QRCodeReader().decode(binaryBitmap, decodeHints).text
+    } catch (_: Exception) {}
+
+    return null
+}
+
+fun saveScanPhoto(context: Context, bitmap: Bitmap, bagNumber: Int): String? {
+    return try {
+        val dir = File(context.filesDir, "scans")
+        if (!dir.exists()) dir.mkdirs()
+        val file = File(dir, "scan_bag_${bagNumber}_${System.currentTimeMillis()}.jpg")
+        file.outputStream().use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        null
+    }
+}
+
+enum class ScanStage {
+    ScanQr,              // Step 1: Scan Bag QR Code first
+    CaptureMushroom,     // Step 2: Photograph the Mushroom
+    ReviewConfirmation   // Step 3: Retake or Confirm
+}
+
+enum class StepState {
+    Active,
+    Completed,
+    Upcoming
+}
+
+enum class CameraIntent {
+    ScanQr1,
+    CaptureMushroom,
+    ScanQr2Confirm
+}
+
+@Composable
+private fun ScanProcessTracker(
+    scanStage: ScanStage,
+    targetBagNumber: Int,
+    targetShelfCode: String,
+    isQr2Confirmed: Boolean = false
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = when (scanStage) {
+            ScanStage.ScanQr -> 0.33f
+            ScanStage.CaptureMushroom -> 0.66f
+            ScanStage.ReviewConfirmation -> if (isQr2Confirmed) 1.0f else 0.85f
+        },
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "pipeline_progress"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF131920)),
+        border = BorderStroke(1.dp, Color(0xFF222C38))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Telemetry Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) Color(0xFF00E676)
+                                else if (scanStage == ScanStage.ReviewConfirmation) Color(0xFF00B0FF)
+                                else Color(0xFF00E676)
+                            )
+                    )
+                    Text(
+                        text = when (scanStage) {
+                            ScanStage.ScanQr -> "STEP 1 OF 3 · SCAN QR 1 (ID)"
+                            ScanStage.CaptureMushroom -> "STEP 2 OF 3 · SPECIMEN CAPTURE"
+                            ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "STEP 3 OF 3 · LOCATION CONFIRMED" else "STEP 3 OF 3 · SCAN QR 2 TO CONFIRM"
+                        },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
+                                Color(0xFF00B0FF).copy(alpha = 0.15f)
+                            else
+                                Color(0xFF00E676).copy(alpha = 0.12f)
+                        )
+                        .border(
+                            1.dp,
+                            if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
+                                Color(0xFF00B0FF).copy(alpha = 0.4f)
+                            else
+                                Color(0xFF00E676).copy(alpha = 0.3f),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = when (scanStage) {
+                            ScanStage.ScanQr -> "33% · READY"
+                            ScanStage.CaptureMushroom -> "66% · LOCKED"
+                            ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "100% · VERIFIED" else "85% · SCAN QR 2"
+                        },
+                        color = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) Color(0xFF00B0FF) else Color(0xFF00E676),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            // High-Tech Animated Linear Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF1E2833))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF00E676), Color(0xFF00B0FF))
+                            )
+                        )
+                )
+            }
+
+            // Milestone Nodes Connected Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MilestoneNode(
+                    step = "1",
+                    title = "QR 1 (ID)",
+                    status = if (scanStage == ScanStage.ScanQr) "Active" else "Done",
+                    isActive = scanStage == ScanStage.ScanQr,
+                    isDone = scanStage != ScanStage.ScanQr
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                        .height(1.dp)
+                        .background(if (scanStage != ScanStage.ScanQr) Color(0xFF00E676).copy(alpha = 0.6f) else Color(0xFF263238))
+                )
+
+                MilestoneNode(
+                    step = "2",
+                    title = "Specimen",
+                    status = when (scanStage) {
+                        ScanStage.ScanQr -> "Pending"
+                        ScanStage.CaptureMushroom -> "Bag #$targetBagNumber"
+                        ScanStage.ReviewConfirmation -> "Done"
+                    },
+                    isActive = scanStage == ScanStage.CaptureMushroom,
+                    isDone = scanStage == ScanStage.ReviewConfirmation
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                        .height(1.dp)
+                        .background(
+                            if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) Color(0xFF00E676).copy(alpha = 0.6f)
+                            else if (scanStage == ScanStage.ReviewConfirmation) Color(0xFF00B0FF).copy(alpha = 0.6f)
+                            else Color(0xFF263238)
+                        )
+                )
+
+                MilestoneNode(
+                    step = "3",
+                    title = "QR 2 Confirm",
+                    status = when {
+                        scanStage != ScanStage.ReviewConfirmation -> "Pending"
+                        isQr2Confirmed -> "Verified"
+                        else -> "Scan 2"
+                    },
+                    isActive = scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed,
+                    isDone = scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MilestoneNode(
+    step: String,
+    title: String,
+    status: String,
+    isActive: Boolean,
+    isDone: Boolean
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        isDone -> Color(0xFF00E676)
+                        isActive -> Color(0xFF00E676).copy(alpha = 0.2f)
+                        else -> Color(0xFF1E2833)
+                    }
+                )
+                .border(
+                    width = 1.dp,
+                    color = when {
+                        isDone || isActive -> Color(0xFF00E676)
+                        else -> Color(0xFF37474F)
+                    },
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (isDone) "✓" else step,
+                color = if (isDone) Color.Black else if (isActive) Color(0xFF00E676) else Color(0xFF90A4AE),
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp
+            )
+        }
+
+        Column {
+            Text(
+                text = title,
+                color = if (isActive || isDone) Color.White else Color(0xFF78909C),
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 11.sp
+            )
+            Text(
+                text = status,
+                color = if (isActive || isDone) Color(0xFF00E676) else Color(0xFF546E7A),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }
 
 @Composable
 private fun MobileScanPanel(
-    primaryLabel: String,
-    secondaryLabel: String = "Demo Result",
-    onPrimary: () -> Unit,
-    onSecondary: () -> Unit
+    detector: YoloV8Detector,
+    scanStage: ScanStage,
+    inferenceSummary: InferenceSummary?,
+    capturedBitmap: Bitmap?,
+    isScanning: Boolean,
+    targetBagNumber: Int,
+    targetShelfCode: String,
+    isQr2Confirmed: Boolean,
+    qrConflictDetected: Boolean,
+    conflictingBagNumber: Int?,
+    qrErrorMessage: String?,
+    onScanQrClick: () -> Unit,
+    onTakeMushroomPhotoClick: () -> Unit,
+    onScanQr2Click: () -> Unit,
+    onRetakePhoto: () -> Unit,
+    onConfirmScan: () -> Unit,
+    onRescanQr: () -> Unit,
+    onChangeBagClick: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // 1. Sleek Modern Process Tracker with Linear Progress Bar
+        ScanProcessTracker(
+            scanStage = scanStage,
+            targetBagNumber = targetBagNumber,
+            targetShelfCode = targetShelfCode,
+            isQr2Confirmed = isQr2Confirmed
+        )
+
+        // 2. High-Tech Precision Viewfinder Viewport
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.58f)
-                .clip(RoundedCornerShape(8.dp))
+                .aspectRatio(1.30f)
+                .clip(RoundedCornerShape(16.dp))
                 .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xFF171A24), Color(0xFF22283A), Color(0xFF151821))
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF0F1318), Color(0xFF151C24), Color(0xFF0B0E12))
                     )
                 )
-                .border(1.dp, Border, RoundedCornerShape(8.dp))
+                .border(
+                    width = 1.5.dp,
+                    color = if (qrConflictDetected || inferenceSummary?.hasContamination == true) ScanResult.Reject.color else Color(0xFF263342),
+                    shape = RoundedCornerShape(16.dp)
+                )
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val laneColor = Color.White.copy(alpha = 0.07f)
-                for (i in 1..5) {
-                    val y = (size.height * i) / 6f
-                    drawLine(laneColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                if (capturedBitmap != null) {
+                    val img = capturedBitmap.asImageBitmap()
+                    drawImage(
+                        image = img,
+                        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                    )
+                } else {
+                    // Precision grid lines
+                    val gridColor = Color.White.copy(alpha = 0.04f)
+                    for (i in 1..5) {
+                        val y = (size.height * i) / 6f
+                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                    }
+                    for (i in 1..7) {
+                        val x = size.width * i / 8f
+                        drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
+                    }
                 }
-                for (i in 1..7) {
-                    val x = size.width * i / 8f
-                    drawLine(laneColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
+
+                // High-Tech Viewfinder Corner Brackets
+                val bracketColor = when {
+                    qrConflictDetected || inferenceSummary?.hasContamination == true -> ScanResult.Reject.color
+                    scanStage != ScanStage.ScanQr -> Color(0xFF00E676)
+                    else -> Color(0xFF00B0FF)
+                }
+                val bLen = 22.dp.toPx()
+                val bStroke = 3.dp.toPx()
+                val pad = 16.dp.toPx()
+
+                // Top-Left
+                drawLine(bracketColor, Offset(pad, pad), Offset(pad + bLen, pad), strokeWidth = bStroke, cap = StrokeCap.Round)
+                drawLine(bracketColor, Offset(pad, pad), Offset(pad, pad + bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
+
+                // Top-Right
+                drawLine(bracketColor, Offset(size.width - pad, pad), Offset(size.width - pad - bLen, pad), strokeWidth = bStroke, cap = StrokeCap.Round)
+                drawLine(bracketColor, Offset(size.width - pad, pad), Offset(size.width - pad, pad + bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
+
+                // Bottom-Left
+                drawLine(bracketColor, Offset(pad, size.height - pad), Offset(pad + bLen, size.height - pad), strokeWidth = bStroke, cap = StrokeCap.Round)
+                drawLine(bracketColor, Offset(pad, size.height - pad), Offset(pad, size.height - pad - bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
+
+                // Bottom-Right
+                drawLine(bracketColor, Offset(size.width - pad, size.height - pad), Offset(size.width - pad - bLen, size.height - pad), strokeWidth = bStroke, cap = StrokeCap.Round)
+                drawLine(bracketColor, Offset(size.width - pad, size.height - pad), Offset(size.width - pad, size.height - pad - bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
+
+                // Detections: Bounding boxes and tags
+                val textPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 10.dp.toPx()
+                    isAntiAlias = true
+                    isFakeBoldText = true
+                }
+                inferenceSummary?.detections?.forEach { det ->
+                    val strokeColor = Color(det.category.colorHex)
+                    val left = det.box.left * size.width
+                    val top = det.box.top * size.height
+                    val right = det.box.right * size.width
+                    val bottom = det.box.bottom * size.height
+                    val boxWidth = max(20f, right - left)
+                    val boxHeight = max(20f, bottom - top)
+
+                    drawRoundRect(
+                        color = strokeColor,
+                        topLeft = Offset(left, top),
+                        size = Size(boxWidth, boxHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()),
+                        style = Stroke(width = 2.5.dp.toPx())
+                    )
+
+                    drawRoundRect(
+                        color = strokeColor.copy(alpha = 0.18f),
+                        topLeft = Offset(left, top),
+                        size = Size(boxWidth, boxHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
+                    )
+
+                    val tagText = "${det.label.replace('_', ' ')} ${(det.confidence * 100).toInt()}%"
+                    val tagWidth = textPaint.measureText(tagText) + 12.dp.toPx()
+                    val tagHeight = 16.dp.toPx()
+                    val tagTop = max(0f, top - tagHeight - 2.dp.toPx())
+
+                    drawRoundRect(
+                        color = strokeColor,
+                        topLeft = Offset(left, tagTop),
+                        size = Size(tagWidth, tagHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                    )
+                    drawContext.canvas.nativeCanvas.drawText(
+                        tagText,
+                        left + 6.dp.toPx(),
+                        tagTop + tagHeight - 4.dp.toPx(),
+                        textPaint
+                    )
                 }
             }
-            StatusPill(
+
+            // Viewport HUD Overlay Header
+            Row(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(10.dp),
-                label = "Phone camera",
-                color = ScanResult.ClassA.color
-            )
-            Text(
-                modifier = Modifier.align(Alignment.Center),
-                text = "Capture a mushroom bag, then run YOLOv8 classification",
-                color = TextMuted,
-                fontSize = 13.sp
-            )
-            Text(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(10.dp),
-                text = "model pending",
-                color = TextMuted,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
-            )
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.82f))
+                        .border(
+                            1.dp,
+                            if (scanStage != ScanStage.ScanQr) Color(0xFF00E676) else Color(0xFF00B0FF),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = when {
+                                qrConflictDetected -> "⚠️ MISMATCH · BAG #$conflictingBagNumber"
+                                scanStage == ScanStage.ScanQr -> "🏷️ STEP 1: SCAN QR 1 (ID)"
+                                scanStage == ScanStage.CaptureMushroom -> "🔒 LOCKED · BAG #$targetBagNumber · SHELF $targetShelfCode"
+                                scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed -> "🔒 LOCATION VERIFIED · BAG #$targetBagNumber"
+                                else -> "🔒 AWAITING QR 2 · BAG #$targetBagNumber"
+                            },
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        if (scanStage != ScanStage.ScanQr) {
+                            Text(
+                                text = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) "AWAITING" else "VERIFIED",
+                                color = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) Color(0xFF00B0FF) else Color(0xFF00E676),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
+                if (inferenceSummary != null) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = "⚡ ${inferenceSummary.inferenceTimeMs}ms · YOLOv8s",
+                            color = Color(0xFF00E676),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // Viewport Center Guidance
+            if (capturedBitmap == null && !isScanning) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    when (scanStage) {
+                        ScanStage.ScanQr -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF00B0FF).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFF00B0FF).copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🏷️", fontSize = 28.sp)
+                            }
+                            Text(
+                                text = "ALIGN BAG COLLAR QR CODE",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                letterSpacing = 0.5.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Scan collar barcode first to confirm grow bag & shelf placement.",
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        ScanStage.CaptureMushroom -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF00E676).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🍄", fontSize = 28.sp)
+                            }
+                            Text(
+                                text = "FRAME OYSTER MUSHROOM CLUSTER",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                letterSpacing = 0.5.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Target locked to Bag #$targetBagNumber on Shelf $targetShelfCode.\nAnti-conflict QR cross-validation active.",
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        ScanStage.ReviewConfirmation -> {}
+                    }
+                }
+            }
+
+            // Bottom Detection Result Overlay (during review)
+            if (scanStage == ScanStage.ReviewConfirmation && inferenceSummary != null) {
+                val count = inferenceSummary.detections.size
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.82f))
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = if (count > 1) "$count Mushrooms Detected" else inferenceSummary.primaryLabel.replace("_", " "),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            val subtitle = if (count > 1) {
+                                inferenceSummary.detections.groupBy { it.label.replace("_", " ") }
+                                    .entries.joinToString(" · ") { "${it.value.size} ${it.key}" }
+                            } else if (count == 1) {
+                                "Grade: ${inferenceSummary.primaryGrade.name} · Confidence: ${(inferenceSummary.primaryConfidence * 100).toInt()}%"
+                            } else {
+                                "No mushroom detected — try adjusting angle or distance"
+                            }
+                            Text(
+                                text = subtitle,
+                                color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) ScanResult.ClassA.color else TextMuted,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        StatusPill(
+                            label = if (inferenceSummary.hasContamination) "⚠️ Contaminated" else if (count > 0) inferenceSummary.primaryGrade.name else "No Match",
+                            color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) inferenceSummary.primaryGrade.color else TextMuted
+                        )
+                    }
+                }
+            }
+
+            // Frosted Loading Buffer Overlay
+            if (isScanning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.82f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(46.dp),
+                            color = Color(0xFF00E676),
+                            strokeWidth = 3.5.dp
+                        )
+                        Text(
+                            text = if (scanStage == ScanStage.ScanQr) "DECODING BAG QR CODE..." else "RUNNING YOLOV8 INFERENCE...",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            letterSpacing = 0.8.sp
+                        )
+                        Text(
+                            text = if (scanStage == ScanStage.ScanQr) "Validating collar telemetry & shelf placement..." else "Executing multi-scale detection & anti-conflict check...",
+                            color = Color(0xFF90A4AE),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onPrimary,
-                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color)
+        // Anti-conflict & Status Alerts
+        if (qrErrorMessage != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1414)),
+                border = BorderStroke(1.dp, ScanResult.Reject.color.copy(alpha = 0.6f))
             ) {
-                Text(primaryLabel)
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("⚠️", fontSize = 18.sp)
+                    Text(qrErrorMessage, color = Color(0xFFFF8A80), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
             }
-            OutlinedButton(onClick = onSecondary) {
-                Text(secondaryLabel)
+        }
+
+        if (qrConflictDetected && conflictingBagNumber != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF281113)),
+                border = BorderStroke(1.5.dp, Color(0xFFFF5252))
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("⚠️", fontSize = 26.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = if (scanStage == ScanStage.ReviewConfirmation) "QR 2 MISMATCH CONFLICT!" else "TELEMETRY CONFLICT DETECTED",
+                            color = Color(0xFFFF5252),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = if (scanStage == ScanStage.ReviewConfirmation) {
+                                "Target is Bag #$targetBagNumber (Shelf $targetShelfCode), but scanned Confirmation QR 2 belongs to Bag #$conflictingBagNumber!\nPlease scan the 2nd QR on Bag #$targetBagNumber to verify this mushroom."
+                            } else {
+                                "Locked target is Bag #$targetBagNumber (Shelf $targetShelfCode), but photo contains collar QR for Bag #$conflictingBagNumber!\nPlease Retake Photo to ensure you capture the correct specimen."
+                            },
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        } else if (scanStage == ScanStage.CaptureMushroom) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1F17)),
+                border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00E676)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
+                    Column {
+                        Text(
+                            text = "Bag #$targetBagNumber (Shelf $targetShelfCode) Verified",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "QR 1 locked. Please photograph the oyster mushroom cluster.",
+                            color = Color(0xFF81C784),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        } else if (scanStage == ScanStage.ReviewConfirmation) {
+            if (isQr2Confirmed) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1F17)),
+                    border = BorderStroke(1.dp, Color(0xFF00E676))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00E676)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Column {
+                            Text(
+                                text = "QR 2 Verified · Location Confirmed",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Physical match verified for Bag #$targetBagNumber (Shelf $targetShelfCode). Ready to save.",
+                                color = Color(0xFF81C784),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF101C24)),
+                    border = BorderStroke(1.dp, Color(0xFF00B0FF).copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00B0FF).copy(alpha = 0.2f))
+                                .border(1.dp, Color(0xFF00B0FF), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("2", color = Color(0xFF00B0FF), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        Column {
+                            Text(
+                                text = "Step 3: Scan QR 2 to Verify Bag #$targetBagNumber",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Scan QR 2 (Confirmation) on Bag #$targetBagNumber (Shelf $targetShelfCode) to verify this mushroom.",
+                                color = Color(0xFF90CAF9),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Action Controls by Stage
+        when (scanStage) {
+            ScanStage.ScanQr -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        onClick = onScanQrClick,
+                        enabled = !isScanning,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("📷", fontSize = 16.sp)
+                            Text(
+                                "SCAN QR 1 (BAG ID)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                letterSpacing = 0.8.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF141920)),
+                        border = BorderStroke(1.dp, Color(0xFF222C38))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("🎯", fontSize = 14.sp)
+                                Text(
+                                    text = "Target: Bag #$targetBagNumber (Shelf $targetShelfCode)",
+                                    color = Color(0xFF90A4AE),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            TextButton(onClick = onChangeBagClick) {
+                                Text(
+                                    "Manual Select",
+                                    color = Color(0xFF00E676),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            ScanStage.CaptureMushroom -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        onClick = onTakeMushroomPhotoClick,
+                        enabled = !isScanning,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("📸", fontSize = 16.sp)
+                            Text(
+                                "CAPTURE SPECIMEN (BAG #$targetBagNumber)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                letterSpacing = 0.8.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        onClick = onRescanQr,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, Border)
+                    ) {
+                        Text(
+                            "↺  SWITCH TO DIFFERENT QR CODE",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
+            ScanStage.ReviewConfirmation -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            onClick = onRetakePhoto,
+                            enabled = !isScanning,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.5.dp, Border)
+                        ) {
+                            Text(
+                                "↺  Retake",
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        if (isQr2Confirmed) {
+                            Button(
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(50.dp),
+                                onClick = onConfirmScan,
+                                enabled = !isScanning,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text("✓", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "CONFIRM & SAVE",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
+                        } else {
+                            Button(
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(50.dp),
+                                onClick = onScanQr2Click,
+                                enabled = !isScanning,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text("📷", fontSize = 15.sp)
+                                    Text(
+                                        "SCAN QR 2 CONFIRM",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Contamination Warning Alert Box
+        if (inferenceSummary?.hasContamination == true) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ScanResult.Reject.color.copy(alpha = 0.15f))
+                    .border(1.5.dp, ScanResult.Reject.color, RoundedCornerShape(10.dp))
+                    .padding(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("☣️", fontSize = 24.sp)
+                    Column {
+                        Text(
+                            text = "CONTAMINATION ALERT TRIGGERED",
+                            color = ScanResult.Reject.color,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Bacterial Blotch or Black Mold detected in this bag. Audible alarm and vibration active. Tap to review immediate cure actions.",
+                            color = TextPrimary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Live Inspection Field Guidelines
+        DataCard {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("💡", fontSize = 20.sp)
+                Column {
+                    Text("Inspection Guidance", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(
+                        "Align the camera squarely with the oyster mushroom cluster. Ensure even lighting and keep the grow bag in full frame for highest grading accuracy.",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ScanScreen(repository: PleuroTechRepository, onMockScan: () -> Unit) {
+private fun ScanScreen(
+    repository: PleuroTechRepository,
+    onOpenAssistant: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val detector = remember { YoloV8Detector(context) }
+    val alarmManager = remember { DiseaseAlarmManager(context) }
+    DisposableEffect(Unit) {
+        onDispose {
+            detector.close()
+            alarmManager.stopAlarm()
+        }
+    }
+
+    val scope = rememberCoroutineScope()
     val latest = repository.latestScan
+    var inferenceSummary by remember { mutableStateOf<InferenceSummary?>(null) }
+    var isScanning by remember { mutableStateOf(false) }
+    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    var scanStage by remember { mutableStateOf(ScanStage.ScanQr) }
+    var cameraIntent by remember { mutableStateOf(CameraIntent.ScanQr1) }
+    var isQr2Confirmed by remember { mutableStateOf(false) }
+
+    var targetBagNumber by remember { mutableIntStateOf(1) }
+    val targetShelfCode = repository.shelfCodeForBag(targetBagNumber)
+    var qrConflictDetected by remember { mutableStateOf(false) }
+    var conflictingBagNumber by remember { mutableStateOf<Int?>(null) }
+    var qrErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    var showBagSelectorDialog by remember { mutableStateOf(false) }
+    var showSuccessToast by remember { mutableStateOf(false) }
+    var successToastMessage by remember { mutableStateOf("") }
+
+    var showDiseaseDialog by remember { mutableStateOf(false) }
+    var activeDiseaseLabel by remember { mutableStateOf("") }
+    var activeDiseaseConfidence by remember { mutableStateOf(0f) }
+
+    // High-Resolution Camera Launcher
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && photoUri != null) {
+            isScanning = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(photoUri!!)
+                    val bmp = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+                    withContext(Dispatchers.Main) {
+                        if (bmp != null) {
+                            when (cameraIntent) {
+                                CameraIntent.ScanQr1 -> {
+                                    // STEP 1: Decode Collar QR 1 (ID)
+                                    val qrText = decodeQrFromBitmap(bmp)
+                                    val parsed = if (qrText != null) parseQrPayload(qrText, repository) else null
+                                    if (parsed != null) {
+                                        if (parsed.qrType == QrType.Confirmation) {
+                                            qrErrorMessage = "⚠️ This is QR 2 (Confirmation). Please scan QR 1 first to identify the bag."
+                                        } else {
+                                            targetBagNumber = parsed.bagNumber
+                                            qrErrorMessage = null
+                                            isQr2Confirmed = false
+                                            qrConflictDetected = false
+                                            conflictingBagNumber = null
+                                            scanStage = ScanStage.CaptureMushroom
+                                        }
+                                    } else {
+                                        qrErrorMessage = if (qrText != null) {
+                                            "Unrecognized QR payload ($qrText). Expected Bag QR 1."
+                                        } else {
+                                            "No QR code found in photo. Please frame the bag collar QR 1 closer."
+                                        }
+                                    }
+                                    isScanning = false
+                                }
+                                CameraIntent.CaptureMushroom -> {
+                                    // STEP 2: Process Mushroom Photo & Anti-Conflict Cross-Check
+                                    capturedBitmap = bmp
+                                    isQr2Confirmed = false
+
+                                    // Anti-conflict: If collar QR is visible in the mushroom photo, verify it matches
+                                    val secondQr = decodeQrFromBitmap(bmp)
+                                    val secondParsed = if (secondQr != null) parseQrPayload(secondQr, repository) else null
+                                    if (secondParsed != null && secondParsed.bagNumber != targetBagNumber) {
+                                        qrConflictDetected = true
+                                        conflictingBagNumber = secondParsed.bagNumber
+                                    } else {
+                                        qrConflictDetected = false
+                                        conflictingBagNumber = null
+                                    }
+
+                                    // Run YOLOv8 multi-scale object detection
+                                    val summary = detector.detect(bmp)
+                                    inferenceSummary = summary
+                                    isScanning = false
+                                    scanStage = ScanStage.ReviewConfirmation
+
+                                    if (summary.hasContamination) {
+                                        activeDiseaseLabel = summary.primaryLabel
+                                        activeDiseaseConfidence = summary.primaryConfidence
+                                        showDiseaseDialog = true
+                                        alarmManager.triggerContaminationAlarm()
+                                    }
+                                }
+                                CameraIntent.ScanQr2Confirm -> {
+                                    // STEP 3: Decode Confirmation QR 2 (Location Verification)
+                                    val qrText = decodeQrFromBitmap(bmp)
+                                    val parsed = if (qrText != null) parseQrPayload(qrText, repository) else null
+                                    if (parsed != null) {
+                                        if (parsed.bagNumber == targetBagNumber) {
+                                            // Matches locked bag!
+                                            isQr2Confirmed = true
+                                            qrConflictDetected = false
+                                            conflictingBagNumber = null
+                                            qrErrorMessage = null
+                                        } else {
+                                            // Belongs to a different bag!
+                                            qrConflictDetected = true
+                                            conflictingBagNumber = parsed.bagNumber
+                                            isQr2Confirmed = false
+                                            qrErrorMessage = "QR 2 mismatch: Scanned Bag #${parsed.bagNumber}, but target is Bag #$targetBagNumber."
+                                        }
+                                    } else {
+                                        qrErrorMessage = if (qrText != null) {
+                                            "Unrecognized QR payload ($qrText). Expected Confirmation QR 2 for Bag #$targetBagNumber."
+                                        } else {
+                                            "No QR code found. Please align camera squarely with QR 2 on Bag #$targetBagNumber."
+                                        }
+                                    }
+                                    isScanning = false
+                                }
+                            }
+                        } else {
+                            isScanning = false
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { isScanning = false }
+                }
+            }
+        }
+    }
+
+    val launchHighResCamera = {
+        try {
+            val file = File(context.cacheDir, "camera_scan_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            photoUri = uri
+            cameraCaptureLauncher.launch(uri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchHighResCamera()
+        }
+    }
+
+    val requestCameraAndLaunch = {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            launchHighResCamera()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    val onScanQrClick = {
+        cameraIntent = CameraIntent.ScanQr1
+        qrErrorMessage = null
+        requestCameraAndLaunch()
+    }
+
+    val onTakeMushroomPhotoClick = {
+        cameraIntent = CameraIntent.CaptureMushroom
+        requestCameraAndLaunch()
+    }
+
+    val onScanQr2Click = {
+        cameraIntent = CameraIntent.ScanQr2Confirm
+        qrErrorMessage = null
+        requestCameraAndLaunch()
+    }
+
+    val onRetakePhoto = {
+        capturedBitmap = null
+        inferenceSummary = null
+        qrConflictDetected = false
+        conflictingBagNumber = null
+        isQr2Confirmed = false
+        scanStage = ScanStage.CaptureMushroom
+        onTakeMushroomPhotoClick()
+    }
+
+    val onRescanQr = {
+        capturedBitmap = null
+        inferenceSummary = null
+        qrConflictDetected = false
+        conflictingBagNumber = null
+        qrErrorMessage = null
+        isQr2Confirmed = false
+        scanStage = ScanStage.ScanQr
+    }
+
+    val onConfirmScan = {
+        val summary = inferenceSummary
+        val bmp = capturedBitmap
+        if (summary != null && bmp != null) {
+            scope.launch(Dispatchers.IO) {
+                val photoPath = saveScanPhoto(context, bmp, targetBagNumber)
+                val breakdown = if (summary.detections.size > 1) {
+                    summary.detections.groupBy { it.label.replace('_', ' ') }
+                        .entries.joinToString(" · ") { "${it.value.size} ${it.key}" }
+                } else {
+                    summary.primaryLabel.replace('_', ' ')
+                }
+                val conf = if (summary.primaryConfidence > 0f) summary.primaryConfidence else 0.85f
+
+                repository.addScan(
+                    bagNumber = targetBagNumber,
+                    result = summary.primaryGrade,
+                    confidence = conf,
+                    shelfCode = targetShelfCode,
+                    customExplanation = "${summary.primaryLabel.replace('_', ' ')} (${(conf * 100).toInt()}%) · ${summary.detections.size} mushrooms",
+                    photoPath = photoPath,
+                    mushroomCount = max(1, summary.detections.size),
+                    classBreakdown = breakdown
+                )
+
+                withContext(Dispatchers.Main) {
+                    successToastMessage = "✅ Bag #$targetBagNumber saved to Shelf $targetShelfCode (${summary.detections.size} mushrooms)!"
+                    showSuccessToast = true
+                    capturedBitmap = null
+                    inferenceSummary = null
+                    qrConflictDetected = false
+                    conflictingBagNumber = null
+                    isQr2Confirmed = false
+                    scanStage = ScanStage.ScanQr
+                    // Advance to next bag
+                    targetBagNumber = if (targetBagNumber < repository.activeBatch.targetBagCount) targetBagNumber + 1 else 1
+                }
+            }
+        }
+    }
+
+    if (showDiseaseDialog) {
+        DiseaseAlertModal(
+            diseaseLabel = activeDiseaseLabel,
+            confidence = activeDiseaseConfidence,
+            onSilenceAndDismiss = {
+                alarmManager.stopAlarm()
+                showDiseaseDialog = false
+            },
+            onConsultAi = {
+                alarmManager.stopAlarm()
+                showDiseaseDialog = false
+                onOpenAssistant()
+            }
+        )
+    }
+
+    if (showBagSelectorDialog) {
+        Dialog(onDismissRequest = { showBagSelectorDialog = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141920)),
+                border = BorderStroke(1.dp, Color(0xFF263342))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Select Bag to Inspect", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("Choose bag location to lock shelf coordinates:", color = Color(0xFF90A4AE), fontSize = 12.sp)
+
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 260.dp)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        (1..repository.activeBatch.targetBagCount).forEach { bNum ->
+                            val isSelected = bNum == targetBagNumber
+                            val sCode = repository.shelfCodeForBag(bNum)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFF00C853) else Color(0xFF1E2833))
+                                    .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF2E3D4D), RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        targetBagNumber = bNum
+                                        showBagSelectorDialog = false
+                                        qrErrorMessage = null
+                                        scanStage = ScanStage.CaptureMushroom
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "#$bNum ($sCode)",
+                                    color = if (isSelected) Color.White else Color(0xFFECEFF1),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showBagSelectorDialog = false }) {
+                            Text("Cancel", color = Color(0xFF90A4AE))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1408,32 +2980,87 @@ private fun ScanScreen(repository: PleuroTechRepository, onMockScan: () -> Unit)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        PageTitle("Scan", "Phone-only YOLOv8 grading workflow")
+        PageTitle("Scan", "On-device YOLOv8 object detection & grading")
+
+        if (showSuccessToast) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ScanResult.ClassA.color.copy(alpha = 0.18f))
+                    .border(1.dp, ScanResult.ClassA.color, RoundedCornerShape(10.dp))
+                    .padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(successToastMessage, color = ScanResult.ClassA.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    TextButton(onClick = { showSuccessToast = false }) {
+                        Text("Dismiss", color = TextMuted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
         MobileScanPanel(
-            primaryLabel = "Scan Current Frame",
-            onPrimary = onMockScan,
-            onSecondary = onMockScan
+            detector = detector,
+            scanStage = scanStage,
+            inferenceSummary = inferenceSummary,
+            capturedBitmap = capturedBitmap,
+            isScanning = isScanning,
+            targetBagNumber = targetBagNumber,
+            targetShelfCode = targetShelfCode,
+            isQr2Confirmed = isQr2Confirmed,
+            qrConflictDetected = qrConflictDetected,
+            conflictingBagNumber = conflictingBagNumber,
+            qrErrorMessage = qrErrorMessage,
+            onScanQrClick = onScanQrClick,
+            onTakeMushroomPhotoClick = onTakeMushroomPhotoClick,
+            onScanQr2Click = onScanQr2Click,
+            onRetakePhoto = onRetakePhoto,
+            onConfirmScan = onConfirmScan,
+            onRescanQr = onRescanQr,
+            onChangeBagClick = { showBagSelectorDialog = true }
         )
+
         AiCommandCenter(
             brief = PleuroAssistant().brief(repository),
             compact = false
         )
+
         DataCard {
-            Text("Classifier status", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Model Architecture", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Text("YOLOv8s · 640x640 · 42.6 MB FlatBuffer", color = TextMuted, fontSize = 12.sp)
+                }
+                StatusPill("TFLite Active", ScanResult.ClassA.color)
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
-                "The trained YOLOv8 model can plug into YoloV8Classifier when it is ready. For now, this screen records demo classification results locally.",
+                "Trained on 7 distinct classes: Ready Class A, Ready Class B, Potential Class A, Potential Class B, Bacterial Blotch, Black Mold, and Reject. Runs 100% offline via hardware-accelerated XNNPACK.",
                 color = TextMuted,
-                fontSize = 12.sp
+                fontSize = 11.sp,
+                lineHeight = 16.sp
             )
         }
+
         DataCard {
-            Text("Latest result", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text("Latest scan record", color = TextPrimary, fontWeight = FontWeight.SemiBold)
             if (latest == null) {
-                Text("No mobile scans yet.", color = TextMuted, fontSize = 12.sp)
+                Text("No scans recorded yet.", color = TextMuted, fontSize = 12.sp)
             } else {
                 LatestScanDetail(scan = latest, onVerify = { repository.verifyScan(latest.id, it) })
             }
         }
+
+        Spacer(Modifier.height(88.dp))
     }
 }
 
@@ -1441,6 +3068,8 @@ private fun ScanScreen(repository: PleuroTechRepository, onMockScan: () -> Unit)
 private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLabel>, String) -> Unit) {
     var labelCount by remember { mutableIntStateOf(24) }
     var customText by remember { mutableStateOf("24") }
+    var isPrinting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val labels = repository.bagLabels(labelCount)
     val batch = repository.activeBatch
 
@@ -1665,24 +3294,50 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(14.dp),
-                onClick = { onPrint(labels, batch.name) },
-                enabled = labels.isNotEmpty(),
+                onClick = {
+                    isPrinting = true
+                    scope.launch {
+                        onPrint(labels, batch.name)
+                        delay(1200)
+                        isPrinting = false
+                    }
+                },
+                enabled = labels.isNotEmpty() && !isPrinting,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ScanResult.ClassA.color,
                     disabledContainerColor = ScanResult.ClassA.color.copy(alpha = 0.4f)
                 )
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("🖨️", fontSize = 16.sp)
-                    Text(
-                        "Print ${labels.size} QR Labels",
-                        color = Color(0xFF155E2B),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
+                if (isPrinting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color(0xFF155E2B),
+                            strokeWidth = 2.5.dp
+                        )
+                        Text(
+                            "Generating Print Document...",
+                            color = Color(0xFF155E2B),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🖨️", fontSize = 16.sp)
+                        Text(
+                            "Print ${labels.size} QR Labels",
+                            color = Color(0xFF155E2B),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                    }
                 }
             }
         }
@@ -1698,6 +3353,78 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
 }
 
 @Composable
+private fun RecordsScreen(
+    repository: PleuroTechRepository,
+    subTab: RecordsSubTab,
+    onSubTabChanged: (RecordsSubTab) -> Unit,
+    onExport: () -> Unit,
+    onClear: () -> Unit,
+    onPrintLabels: (List<BagLabel>, String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Surface,
+            tonalElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RecordsSubTab.values().forEach { tab ->
+                    val isSelected = subTab == tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) ScanResult.ClassA.color.copy(alpha = 0.16f) else SurfaceAlt)
+                            .border(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) ScanResult.ClassA.color else Border,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .clickable { onSubTabChanged(tab) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(tab.icon, fontSize = 14.sp)
+                            Text(
+                                text = tab.title,
+                                color = if (isSelected) ScanResult.ClassA.color else TextPrimary,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        when (subTab) {
+            RecordsSubTab.History -> HistoryScreen(
+                repository = repository,
+                onExport = onExport,
+                onClear = onClear
+            )
+            RecordsSubTab.Analytics -> AnalyticsScreen(
+                repository = repository
+            )
+            RecordsSubTab.Labels -> LabelsScreen(
+                repository = repository,
+                onPrint = onPrintLabels
+            )
+        }
+    }
+}
+
+@Composable
 private fun HistoryScreen(
     repository: PleuroTechRepository,
     onExport: () -> Unit,
@@ -1707,6 +3434,16 @@ private fun HistoryScreen(
     val perPage = 20
     val totalPages = max(1, (repository.scans.size + perPage - 1) / perPage)
     val pageRows = repository.history(page.coerceAtMost(totalPages), perPage)
+
+    var selectedScanForModal by remember { mutableStateOf<ScanRecord?>(null) }
+
+    if (selectedScanForModal != null) {
+        InspectionDetailModal(
+            scan = selectedScanForModal!!,
+            onDismiss = { selectedScanForModal = null },
+            onVerify = { scan, result -> repository.verifyScan(scan.id, result) }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -1722,6 +3459,7 @@ private fun HistoryScreen(
             ScanRows(
                 scans = pageRows,
                 compact = false,
+                onSelectScan = { selectedScanForModal = it },
                 onVerify = { scan, result -> repository.verifyScan(scan.id, result) }
             )
         }
@@ -1839,6 +3577,7 @@ private fun AnalyticsScreen(repository: PleuroTechRepository) {
 private fun AssistantScreen(repository: PleuroTechRepository) {
     val assistant = remember { PleuroAssistant() }
     var input by remember { mutableStateOf("") }
+    var isThinking by remember { mutableStateOf(false) }
     val messages = remember {
         mutableStateListOf(
             AssistantMessage(
@@ -1853,11 +3592,16 @@ private fun AssistantScreen(repository: PleuroTechRepository) {
 
     fun sendPrompt(prompt: String) {
         val cleaned = prompt.trim()
-        if (cleaned.isEmpty()) return
+        if (cleaned.isEmpty() || isThinking) return
         messages.add(AssistantMessage(MessageSender.User, cleaned))
-        messages.add(AssistantMessage(MessageSender.Assistant, assistant.answer(cleaned, repository)))
         input = ""
+        isThinking = true
         scope.launch {
+            listState.animateScrollToItem(messages.lastIndex)
+            delay(500)
+            val answer = assistant.answer(cleaned, repository)
+            messages.add(AssistantMessage(MessageSender.Assistant, answer))
+            isThinking = false
             listState.animateScrollToItem(messages.lastIndex)
         }
     }
@@ -1910,6 +3654,28 @@ private fun AssistantScreen(repository: PleuroTechRepository) {
         ) {
             items(messages.size) { index ->
                 AssistantBubble(message = messages[index])
+            }
+            if (isThinking) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = ScanResult.ClassA.color,
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "AI Farm Assistant is reviewing records & answering...",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -2036,16 +3802,24 @@ private fun AssistantScreen(repository: PleuroTechRepository) {
                             if (isReady) InfoBlue.copy(alpha = 0.3f) else Border,
                             CircleShape
                         )
-                        .clickable(enabled = isReady) {
+                        .clickable(enabled = isReady && !isThinking) {
                             focusManager.clearFocus()
                             sendPrompt(input)
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    SendIcon(
-                        color = sendContentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (isThinking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        SendIcon(
+                            color = sendContentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
@@ -2136,14 +3910,17 @@ private fun ContaminationAlertPanel(alerts: List<ContaminationAlert>) {
 }
 
 @Composable
-private fun ShelfMapPanel(shelves: List<ShelfSummary>) {
+private fun ShelfMapPanel(
+    shelves: List<ShelfSummary>,
+    onSelectShelf: (ShelfSummary) -> Unit = {}
+) {
     Column {
         SectionLabel("Shelf Map")
         Spacer(Modifier.height(8.dp))
         DataCard {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 shelves.forEach { shelf ->
-                    ShelfTile(shelf = shelf)
+                    ShelfTile(shelf = shelf, onClick = { onSelectShelf(shelf) })
                 }
             }
         }
@@ -2151,7 +3928,7 @@ private fun ShelfMapPanel(shelves: List<ShelfSummary>) {
 }
 
 @Composable
-private fun ShelfTile(shelf: ShelfSummary) {
+private fun ShelfTile(shelf: ShelfSummary, onClick: () -> Unit = {}) {
     val color = shelfStatusColor(shelf)
     Column(
         modifier = Modifier
@@ -2159,12 +3936,421 @@ private fun ShelfTile(shelf: ShelfSummary) {
             .clip(RoundedCornerShape(8.dp))
             .background(color.copy(alpha = 0.13f))
             .border(1.dp, color.copy(alpha = 0.32f), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
             .padding(9.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(shelf.shelfCode, color = color, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         Text("${shelf.total} scans", color = TextMuted, fontSize = 10.sp, maxLines = 1)
         Text("${shelf.reject} R", color = ScanResult.Reject.color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun ShelfDetailModal(
+    shelf: ShelfSummary,
+    scans: List<ScanRecord>,
+    onDismiss: () -> Unit
+) {
+    var expandedBagScan by remember { mutableStateOf<ScanRecord?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .clip(RoundedCornerShape(16.dp)),
+            color = Surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (expandedBagScan != null) {
+                    val scan = expandedBagScan!!
+                    val photoBitmap = remember(scan.photoPath) {
+                        if (!scan.photoPath.isNullOrEmpty()) {
+                            try {
+                                BitmapFactory.decodeFile(scan.photoPath)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        } else {
+                            null
+                        }
+                    }
+
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Bag #${scan.bagNumber}",
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                            Text(
+                                text = "Shelf ${scan.shelfCode} · Batch ${scan.batchId}",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        ResultBadge(
+                            result = scan.finalResult,
+                            text = if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
+                        )
+                    }
+
+                    // Captured Mushroom Photo
+                    if (photoBitmap != null) {
+                        Image(
+                            bitmap = photoBitmap.asImageBitmap(),
+                            contentDescription = "Captured Mushroom Photo",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.30f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, Border, RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SurfaceAlt)
+                                .border(1.dp, Border, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("🍄", fontSize = 32.sp)
+                                Text("No Photo Attached", color = TextMuted, fontSize = 12.sp)
+                                Text("Captured prior to live photo persistence", color = TextMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+
+                    // Metrics
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MiniMetric(
+                            modifier = Modifier.weight(1f),
+                            label = "COUNT",
+                            value = "${scan.mushroomCount}",
+                            accent = ScanResult.ClassA.color
+                        )
+                        MiniMetric(
+                            modifier = Modifier.weight(1f),
+                            label = "CONFIDENCE",
+                            value = "${(scan.confidence * 100).toInt()}%",
+                            accent = ScanResult.ClassB.color
+                        )
+                        MiniMetric(
+                            modifier = Modifier.weight(1f),
+                            label = "GRADE",
+                            value = scan.finalResult.shortName,
+                            accent = scan.finalResult.color
+                        )
+                    }
+
+                    if (scan.classBreakdown.isNotEmpty()) {
+                        Text(
+                            text = "Breakdown: ${scan.classBreakdown}",
+                            color = TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    if (scan.aiExplanation.isNotEmpty()) {
+                        Text(
+                            text = scan.aiExplanation,
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    Text(
+                        text = "Scanned on ${scan.dateLabel} at ${scan.timeLabel}",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { expandedBagScan = null }
+                        ) {
+                            Text("← Back to Bags", color = TextPrimary)
+                        }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+                        ) {
+                            Text("Close", color = TextPrimary)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Shelf ${shelf.shelfCode}",
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "${shelf.total} Total Scans · ${shelf.reject} Rejects",
+                                color = TextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                        StatusPill(label = shelf.status, color = shelfStatusColor(shelf))
+                    }
+
+                    Text(
+                        text = "Tap any bag below to view its captured mushroom photo and details:",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
+
+                    if (scans.isEmpty()) {
+                        Text(
+                            text = "No inspection records found for this shelf yet.",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            scans.forEach { scan ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(SurfaceAlt)
+                                        .clickable { expandedBagScan = scan }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = "Bag #${scan.bagNumber}",
+                                                color = TextPrimary,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                            if (!scan.photoPath.isNullOrEmpty()) {
+                                                Text("📷", fontSize = 11.sp)
+                                            }
+                                        }
+                                        Text(
+                                            text = "${scan.mushroomCount} mushrooms · ${scan.timeLabel}",
+                                            color = TextMuted,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    ResultBadge(result = scan.finalResult)
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+                    ) {
+                        Text("Close", color = TextPrimary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectionDetailModal(
+    scan: ScanRecord,
+    onDismiss: () -> Unit,
+    onVerify: ((ScanRecord, ScanResult) -> Unit)? = null
+) {
+    val photoBitmap = remember(scan.photoPath) {
+        if (!scan.photoPath.isNullOrEmpty()) {
+            try {
+                BitmapFactory.decodeFile(scan.photoPath)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .clip(RoundedCornerShape(16.dp)),
+            color = Surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Bag #${scan.bagNumber}",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        Text(
+                            text = "Shelf ${scan.shelfCode} · Batch ${scan.batchId}",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    ResultBadge(
+                        result = scan.finalResult,
+                        text = if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
+                    )
+                }
+
+                // Captured Mushroom Photo
+                if (photoBitmap != null) {
+                    Image(
+                        bitmap = photoBitmap.asImageBitmap(),
+                        contentDescription = "Captured Mushroom Photo",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1.30f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, Border, RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceAlt)
+                            .border(1.dp, Border, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("🍄", fontSize = 32.sp)
+                            Text("No Photo Available", color = TextMuted, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // Metrics
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MiniMetric(
+                        modifier = Modifier.weight(1f),
+                        label = "COUNT",
+                        value = "${scan.mushroomCount}",
+                        accent = ScanResult.ClassA.color
+                    )
+                    MiniMetric(
+                        modifier = Modifier.weight(1f),
+                        label = "CONFIDENCE",
+                        value = "${(scan.confidence * 100).toInt()}%",
+                        accent = ScanResult.ClassB.color
+                    )
+                    MiniMetric(
+                        modifier = Modifier.weight(1f),
+                        label = "GRADE",
+                        value = scan.finalResult.shortName,
+                        accent = scan.finalResult.color
+                    )
+                }
+
+                if (scan.classBreakdown.isNotEmpty()) {
+                    Text(
+                        text = "Breakdown: ${scan.classBreakdown}",
+                        color = TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (scan.aiExplanation.isNotEmpty()) {
+                    Text(
+                        text = scan.aiExplanation,
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Text(
+                    text = "Scanned on ${scan.dateLabel} at ${scan.timeLabel}",
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                // Close Button
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+                ) {
+                    Text("Close", color = TextPrimary)
+                }
+            }
+        }
     }
 }
 
@@ -2779,14 +4965,18 @@ private fun LatestScanDetail(scan: ScanRecord, onVerify: (ScanResult) -> Unit) {
 @Composable
 private fun QrCode(payload: String, modifier: Modifier = Modifier) {
     val matrix = remember(payload) {
-        QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 29, 29)
+        val hints = mapOf(
+            EncodeHintType.MARGIN to 1,
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+        )
+        QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 33, 33, hints)
     }
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
             .border(1.dp, Border, RoundedCornerShape(8.dp))
-            .padding(8.dp)
+            .padding(6.dp)
     ) {
         val cell = size.minDimension / matrix.width
         for (x in 0 until matrix.width) {
@@ -2807,23 +4997,79 @@ private fun QrCode(payload: String, modifier: Modifier = Modifier) {
 private fun PrintableQrLabel(label: BagLabel) {
     Column(
         modifier = Modifier
-            .width(142.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .border(1.dp, Border, RoundedCornerShape(8.dp))
-            .padding(10.dp),
+            .border(1.dp, Border, RoundedCornerShape(12.dp))
+            .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("PleuroTech", color = Color(0xFF1D2D22), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        QrCode(payload = label.qrPayload, modifier = Modifier.size(104.dp))
-        Text(label.batchId, color = Color(0xFF607067), fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("PleuroTech Dual Tag", color = Color(0xFF1D2D22), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(label.batchId, color = Color(0xFF607067), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // QR 1 Compartment
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFF1F8F5))
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF00796B))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("1. SCAN FIRST", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                }
+                QrCode(payload = label.qrPayload, modifier = Modifier.size(90.dp))
+                Text("Step 1 ID", color = Color(0xFF00796B), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            // QR 2 Compartment
+            val confirmPayload = if (label.confirmQrPayload.isNotEmpty()) label.confirmQrPayload else "${label.qrPayload}/confirm"
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFF0F7FB))
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF0288D1))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text("2. CONFIRM", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                }
+                QrCode(payload = confirmPayload, modifier = Modifier.size(90.dp))
+                Text("Step 3 Verify", color = Color(0xFF0288D1), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
         Text(
-            "Bag ${label.bagNumber.toString().padStart(3, '0')} | Shelf ${label.shelfCode}",
+            "Bag ${label.bagNumber.toString().padStart(3, '0')}  |  Shelf ${label.shelfCode}",
             color = Color(0xFF1D2D22),
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 11.sp,
-            maxLines = 1
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp
         )
     }
 }
@@ -2844,35 +5090,65 @@ private fun ReportPreviewPanel(report: ScanReport) {
 private fun ScanRows(
     scans: List<ScanRecord>,
     compact: Boolean,
+    onSelectScan: ((ScanRecord) -> Unit)? = null,
     onVerify: ((ScanRecord, ScanResult) -> Unit)? = null
 ) {
     if (scans.isEmpty()) {
-        Text(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 20.dp),
-            text = "No scans yet. Add a mock scan or seed demo data.",
-            color = TextMuted,
-            fontSize = 13.sp
-        )
+                .padding(vertical = 24.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("🍄", fontSize = 32.sp)
+            Text(
+                text = "No Scans Recorded Yet",
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+            Text(
+                text = "Inspection history will appear here as you scan oyster mushroom bags with the camera.",
+                color = TextMuted,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 16.sp
+            )
+        }
         return
     }
     scans.forEachIndexed { index, scan ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 11.dp),
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(enabled = onSelectScan != null) { onSelectScan?.invoke(scan) }
+                .padding(vertical = 10.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (!compact) Text("#${scan.id}", modifier = Modifier.width(42.dp), color = TextMuted, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            Text(
-                "Bag ${scan.bagNumber}\n${scan.shelfCode}",
-                modifier = Modifier.widthIn(min = 58.dp),
-                color = if (compact) TextMuted else TextPrimary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp
-            )
+            Column(modifier = Modifier.widthIn(min = 58.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Bag ${scan.bagNumber}",
+                        color = if (compact) TextMuted else TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    )
+                    if (!scan.photoPath.isNullOrEmpty()) {
+                        Text("📷", fontSize = 10.sp)
+                    }
+                }
+                Text(
+                    scan.shelfCode,
+                    color = TextMuted,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+            }
             ResultBadge(result = scan.finalResult, text = if (scan.verified) "V-${scan.finalResult.shortName}" else scan.finalResult.displayName)
             ConfidenceBar(
                 modifier = Modifier
@@ -3091,6 +5367,22 @@ private fun ChartLegend() {
 
 @Composable
 private fun TrendStackedBars(trend: List<DailyTrend>) {
+    if (trend.all { it.total == 0 }) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No yield trend data yet. New daily scans will populate this chart.",
+                color = TextMuted,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+        return
+    }
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
@@ -3122,6 +5414,22 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
 
 @Composable
 private fun DailyTotalsBars(trend: List<DailyTrend>) {
+    if (trend.all { it.total == 0 }) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Daily totals will appear here as bags are scanned.",
+                color = TextMuted,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+        return
+    }
     val barColor = InfoBlue.copy(alpha = 0.45f)
     Canvas(
         modifier = Modifier
@@ -3277,13 +5585,14 @@ private fun signedPercent(value: Float): String {
 }
 
 private fun AppTab.iconLabel(): String = when (this) {
-    AppTab.Dashboard -> "H"
-    AppTab.Scan -> "C"
-    AppTab.Labels -> "B"
-    AppTab.History -> "L"
-    AppTab.Analytics -> "A"
-    AppTab.Assistant -> "AI"
-    AppTab.Settings -> "S"
+    AppTab.Dashboard -> "🏠"
+    AppTab.Scan -> "📷"
+    AppTab.Records -> "📊"
+    AppTab.Assistant -> "🤖"
+    AppTab.Labels -> "🏷️"
+    AppTab.History -> "📋"
+    AppTab.Analytics -> "📈"
+    AppTab.Settings -> "⚙️"
 }
 
 private fun riskColor(level: String): Color = when (level) {

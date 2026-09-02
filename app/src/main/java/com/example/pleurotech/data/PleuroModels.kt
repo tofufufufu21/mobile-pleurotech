@@ -50,7 +50,10 @@ data class ScanRecord(
     val qrPayload: String = "pleurotech://scan/0",
     val aiExplanation: String = "",
     val verified: Boolean = false,
-    val verifiedResult: ScanResult? = null
+    val verifiedResult: ScanResult? = null,
+    val photoPath: String? = null,
+    val mushroomCount: Int = 1,
+    val classBreakdown: String = ""
 ) {
     val timeLabel: String = timestamp.format(DateTimeFormatter.ofPattern("HH:mm:ss"))
     val dateLabel: String = timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -140,7 +143,8 @@ data class BagLabel(
     val batchId: String,
     val bagNumber: Int,
     val shelfCode: String,
-    val qrPayload: String
+    val qrPayload: String,
+    val confirmQrPayload: String = ""
 )
 
 data class ShelfSummary(

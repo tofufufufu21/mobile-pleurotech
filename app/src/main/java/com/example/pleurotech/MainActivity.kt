@@ -32,6 +32,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PleuroTechPreview() {
     PleurotechTheme {
-        PleuroTechApp(repository = PleuroTechRepository.seeded())
+        PleuroTechApp(repository = PleuroTechRepository.empty())
     }
 }

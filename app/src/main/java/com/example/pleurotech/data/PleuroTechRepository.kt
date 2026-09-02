@@ -194,7 +194,11 @@ class PleuroTechRepository(
         confidence: Float,
         timestamp: LocalDateTime = LocalDateTime.now(),
         batchId: String = activeBatch.id,
-        shelfCode: String = shelfCodeForBag(bagNumber)
+        shelfCode: String = shelfCodeForBag(bagNumber),
+        customExplanation: String? = null,
+        photoPath: String? = null,
+        mushroomCount: Int = 1,
+        classBreakdown: String = ""
     ) {
         val id = nextScanId++
         val record = ScanRecord(
@@ -206,31 +210,38 @@ class PleuroTechRepository(
             batchId = batchId,
             shelfCode = shelfCode,
             qrPayload = bagQrPayload(batchId, bagNumber),
-            aiExplanation = explanationFor(result, confidence, shelfCode)
+            aiExplanation = customExplanation ?: explanationFor(result, confidence, shelfCode),
+            photoPath = photoPath,
+            mushroomCount = mushroomCount,
+            classBreakdown = classBreakdown
         )
         scans.add(0, record)
         dbHelper?.insertScan(record, PleuroTechDbHelper.SYNC_PENDING)
     }
 
-    fun addMockScan() {
-        val weighted = listOf(
-            ScanResult.ClassA,
-            ScanResult.ClassA,
-            ScanResult.ClassA,
-            ScanResult.ClassB,
-            ScanResult.ClassB,
-            ScanResult.Reject
-        )
-        addScan(
-            bagNumber = Random.nextInt(1, 21),
-            result = weighted.random(),
-            confidence = Random.nextDouble(0.75, 0.99).toFloat()
-        )
+    fun scansForShelf(shelfCode: String): List<ScanRecord> {
+        return scans.filter { it.shelfCode.equals(shelfCode, ignoreCase = true) }
     }
 
-    fun clear() {
+    fun latestScanForBag(bagNumber: Int): ScanRecord? {
+        return scans.firstOrNull { it.bagNumber == bagNumber }
+    }
+
+
+    fun clear(context: Context? = null) {
         scans.clear()
+        nextScanId = 1
         dbHelper?.clearAll()
+        batches.clear()
+        val freshBatch = defaultBatch()
+        batches.add(freshBatch)
+        dbHelper?.insertOrUpdateBatch(freshBatch)
+        if (context != null) {
+            try {
+                val dir = java.io.File(context.filesDir, "scans")
+                if (dir.exists()) dir.deleteRecursively()
+            } catch (_: Exception) {}
+        }
     }
 
     fun verifyScan(scanId: Int, result: ScanResult) {
@@ -304,7 +315,8 @@ class PleuroTechRepository(
                 batchId = batch.id,
                 bagNumber = bagNumber,
                 shelfCode = shelfCodeForBag(bagNumber),
-                qrPayload = bagQrPayload(batch.id, bagNumber)
+                qrPayload = bagQrPayload(batch.id, bagNumber, isConfirm = false),
+                confirmQrPayload = bagQrPayload(batch.id, bagNumber, isConfirm = true)
             )
         }
     }
@@ -335,11 +347,12 @@ class PleuroTechRepository(
         return listOf("id,batch_id,shelf_code,bag_num,ai_result,final_result,verified,confidence,qr_payload,timestamp").plus(rows).joinToString("\n")
     }
 
-    private fun bagQrPayload(batchId: String, bagNumber: Int): String {
-        return "pleurotech://batch/$batchId/bag/${bagNumber.toString().padStart(3, '0')}"
+    fun bagQrPayload(batchId: String, bagNumber: Int, isConfirm: Boolean = false): String {
+        val typeSuffix = if (isConfirm) "/confirm" else "/id"
+        return "pleurotech://batch/$batchId/bag/${bagNumber.toString().padStart(3, '0')}$typeSuffix"
     }
 
-    private fun shelfCodeForBag(bagNumber: Int): String {
+    fun shelfCodeForBag(bagNumber: Int): String {
         val rack = ((bagNumber - 1).floorDiv(5)).coerceIn(0, activeBatch.rackCount - 1)
         val shelf = ((bagNumber - 1) % activeBatch.shelvesPerRack) + 1
         return "${('A'.code + rack).toChar()}$shelf"
@@ -360,12 +373,10 @@ class PleuroTechRepository(
             val sync = SupabaseSyncManager(context, db)
             val auth = SupabaseAuthManager(db)
 
-            // Auto-seed if SQLite is fresh and empty
-            if (db.countTotalScans() == 0) {
-                val seedBatch = defaultBatch()
-                db.insertOrUpdateBatch(seedBatch)
-                val seedScans = generateSeedScans(seedBatch)
-                db.insertScansBatch(seedScans, PleuroTechDbHelper.SYNC_PENDING)
+            // Ensure a clean default batch exists if table is empty
+            if (db.getAllBatches().isEmpty()) {
+                val defaultB = defaultBatch()
+                db.insertOrUpdateBatch(defaultB)
             }
 
             val batches = db.getAllBatches().ifEmpty { listOf(defaultBatch()) }
@@ -387,73 +398,13 @@ class PleuroTechRepository(
             initialBatches = listOf(defaultBatch())
         )
 
-        fun seeded(): PleuroTechRepository {
-            val seedBatch = defaultBatch()
-            val seedScans = generateSeedScans(seedBatch)
-            return PleuroTechRepository(
-                dbHelper = null,
-                syncManager = null,
-                initialScans = seedScans,
-                initialBatches = listOf(seedBatch)
-            )
-        }
-
-        private fun generateSeedScans(batch: MushroomBatch): List<ScanRecord> {
-            val now = LocalDateTime.now()
-            var scanId = 1
-            val results = listOf(
-                ScanResult.ClassA,
-                ScanResult.ClassA,
-                ScanResult.ClassA,
-                ScanResult.ClassB,
-                ScanResult.ClassB,
-                ScanResult.Reject
-            )
-            val scans = mutableListOf<ScanRecord>()
-
-            for (dayOffset in 13 downTo 0) {
-                val day = now.minusDays(dayOffset.toLong())
-                repeat(Random.nextInt(20, 36)) {
-                    val result = results.random()
-                    scans += ScanRecord(
-                        id = scanId++,
-                        bagNumber = Random.nextInt(1, 21),
-                        result = result,
-                        confidence = Random.nextDouble(0.75, 0.99).toFloat(),
-                        timestamp = day.withHour(Random.nextInt(6, 19)).withMinute(Random.nextInt(0, 60)).withSecond(0),
-                        batchId = batch.id,
-                        shelfCode = "A1",
-                        qrPayload = "pleurotech://batch/${batch.id}/bag/${(scanId - 1).toString().padStart(3, '0')}"
-                    )
-                }
-            }
-
-            return scans.map {
-                it.copy(
-                    shelfCode = shelfForSeed(it.bagNumber),
-                    qrPayload = "pleurotech://batch/${it.batchId}/bag/${it.bagNumber.toString().padStart(3, '0')}",
-                    aiExplanation = when (it.result) {
-                        ScanResult.ClassA -> "AI found uniform oyster mushroom growth, clean cap structure, and low defect risk on shelf ${shelfForSeed(it.bagNumber)} with ${"%.0f".format(it.confidence * 100)}% confidence."
-                        ScanResult.ClassB -> "AI detected acceptable oyster mushroom growth with minor quality variation. Review cap size before premium sorting."
-                        ScanResult.Reject -> "AI detected visual risk patterns that may indicate contamination or poor fruiting quality. Isolate this bag for manual inspection."
-                    }
-                )
-            }
-        }
-
         private fun defaultBatch(): MushroomBatch = MushroomBatch(
             id = "BATCH-001",
             name = "Oyster Batch 001",
-            startedDate = LocalDate.now().minusDays(12),
+            startedDate = LocalDate.now(),
             targetBagCount = 120,
             rackCount = 4,
             shelvesPerRack = 5
         )
-
-        private fun shelfForSeed(bagNumber: Int): String {
-            val rack = ((bagNumber - 1).floorDiv(5)).coerceIn(0, 3)
-            val shelf = ((bagNumber - 1) % 5) + 1
-            return "${('A'.code + rack).toChar()}$shelf"
-        }
     }
 }
