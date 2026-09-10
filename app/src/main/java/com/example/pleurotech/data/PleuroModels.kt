@@ -17,25 +17,25 @@ enum class ScanResult(
         apiName = "Class_A",
         displayName = "Class A",
         shortName = "A",
-        description = "premium",
-        color = Color(0xFF4ADE80),
-        softColor = Color(0x1F4ADE80)
+        description = "premium grade",
+        color = Color(0xFF059669),
+        softColor = Color(0xFFECFDF5)
     ),
     ClassB(
         apiName = "Class_B",
         displayName = "Class B",
         shortName = "B",
-        description = "acceptable",
-        color = Color(0xFFFBBF24),
-        softColor = Color(0x1FFBBF24)
+        description = "standard quality",
+        color = Color(0xFF0284C7),
+        softColor = Color(0xFFF0F9FF)
     ),
     Reject(
         apiName = "Reject",
         displayName = "Reject",
         shortName = "R",
-        description = "remove now",
-        color = Color(0xFFF87171),
-        softColor = Color(0x1FF87171)
+        description = "flag for removal",
+        color = Color(0xFFE11D48),
+        softColor = Color(0xFFFFF1F2)
     )
 }
 

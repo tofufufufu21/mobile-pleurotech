@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -123,6 +124,8 @@ import com.example.pleurotech.data.ScanReport
 import com.example.pleurotech.data.ShelfSummary
 import com.example.pleurotech.data.TrendInsights
 import com.example.pleurotech.data.sync.SyncResult
+import com.example.pleurotech.ml.MushroomDiagnosisGuide
+import com.example.pleurotech.ml.ActionStatus
 import com.example.pleurotech.ui.theme.PleurotechTheme
 import com.example.pleurotech.util.QrLabelPrinter
 import com.google.zxing.BarcodeFormat
@@ -161,6 +164,10 @@ import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import com.example.pleurotech.ui.theme.*
+
 enum class ThemePreference(val title: String, val icon: String) {
     Light("Light", "☀️"),
     Dark("Dark", "🌙"),
@@ -174,27 +181,33 @@ data class PleuroColors(
     val border: Color,
     val textPrimary: Color,
     val textMuted: Color,
-    val infoBlue: Color
+    val infoBlue: Color,
+    val emeraldPrimary: Color = Color(0xFF059669),
+    val emeraldSoft: Color = Color(0xFFECFDF5)
 )
 
 val LightPleuroColors = PleuroColors(
-    appBackground = Color(0xFFF4F7F1),
+    appBackground = Color(0xFFF8FAFC),
     surface = Color(0xFFFFFFFF),
-    surfaceAlt = Color(0xFFEAF1E6),
-    border = Color(0x1F1F3527),
-    textPrimary = Color(0xFF1D2D22),
-    textMuted = Color(0xFF607067),
-    infoBlue = Color(0xFF2F80ED)
+    surfaceAlt = Color(0xFFF1F5F9),
+    border = Color(0xFFE2E8F0),
+    textPrimary = Color(0xFF0F172A),
+    textMuted = Color(0xFF64748B),
+    infoBlue = Color(0xFF0284C7),
+    emeraldPrimary = Color(0xFF059669),
+    emeraldSoft = Color(0xFFECFDF5)
 )
 
 val DarkPleuroColors = PleuroColors(
-    appBackground = Color(0xFF0E1410),
-    surface = Color(0xFF17201A),
-    surfaceAlt = Color(0xFF212C24),
-    border = Color(0x33FFFFFF),
-    textPrimary = Color(0xFFF1F6F0),
-    textMuted = Color(0xFF98ACA0),
-    infoBlue = Color(0xFF4B96FF)
+    appBackground = Color(0xFF0B0F14),
+    surface = Color(0xFF131B24),
+    surfaceAlt = Color(0xFF1C2631),
+    border = Color(0x24FFFFFF),
+    textPrimary = Color(0xFFF8FAFC),
+    textMuted = Color(0xFF94A3B8),
+    infoBlue = Color(0xFF38BDF8),
+    emeraldPrimary = Color(0xFF10B981),
+    emeraldSoft = Color(0xFF064E3B)
 )
 
 val LocalPleuroColors = compositionLocalOf { LightPleuroColors }
@@ -256,6 +269,8 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var showOnboarding by remember { mutableStateOf(!PleuroTechRepository.isOnboardingCompleted(context)) }
+    var showGuidedTour by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalPleuroColors provides currentColors) {
         PleurotechTheme(darkTheme = isDark) {
@@ -265,7 +280,18 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                     onAuthSuccess = {
                         val user = repository.authManager?.getCurrentUser()
                         selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
+                        showOnboarding = !PleuroTechRepository.isOnboardingCompleted(context)
                         isAuthenticated = true
+                    }
+                )
+            } else if (showOnboarding) {
+                OnboardingScreen(
+                    onComplete = {
+                        PleuroTechRepository.setOnboardingCompleted(context, true)
+                        showOnboarding = false
+                        showGuidedTour = true
+                        val user = repository.authManager?.getCurrentUser()
+                        selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
                     }
                 )
             } else {
@@ -287,107 +313,197 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                     }
                 }
 
-                Scaffold(
-                    containerColor = AppBackground,
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    bottomBar = {
-                        NavigationBar(containerColor = Surface) {
-                            navTabs.forEach { tab ->
-                                val isSelected = selectedTab == tab || (tab == AppTab.Records && (selectedTab == AppTab.History || selectedTab == AppTab.Analytics || selectedTab == AppTab.Labels))
-                                NavigationBarItem(
-                                    selected = isSelected,
-                                    onClick = {
-                                        selectedTab = tab
-                                        if (tab == AppTab.Records) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Scaffold(
+                        containerColor = AppBackground,
+                        snackbarHost = { SnackbarHost(snackbarHostState) },
+                        bottomBar = {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                color = Surface,
+                                tonalElevation = 3.dp,
+                                border = BorderStroke(1.dp, Border)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceAround,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    navTabs.forEach { tab ->
+                                        val isSelected = selectedTab == tab || (tab == AppTab.Records && (selectedTab == AppTab.History || selectedTab == AppTab.Analytics || selectedTab == AppTab.Labels))
+                                        val itemBg by animateColorAsState(
+                                            targetValue = if (isSelected) ScanResult.ClassA.softColor else Color.Transparent,
+                                            label = "navItemBg"
+                                        )
+                                        val iconColor by animateColorAsState(
+                                            targetValue = if (isSelected) ScanResult.ClassA.color else TextMuted,
+                                            label = "navIconColor"
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(itemBg)
+                                                .clickable {
+                                                    selectedTab = tab
+                                                    if (tab == AppTab.Records) {
+                                                        recordsSubTab = RecordsSubTab.History
+                                                    }
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                AppTabIcon(tab = tab, isSelected = isSelected)
+                                                if (isSelected) {
+                                                    Text(
+                                                        text = tab.title,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ScanResult.ClassA.color
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ) { innerPadding ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(AppBackground)
+                                .padding(innerPadding)
+                        ) {
+                            AppHeader(
+                                selectedTab = selectedTab,
+                                onSelectTab = { tab ->
+                                    when (tab) {
+                                        AppTab.History -> {
+                                            selectedTab = AppTab.Records
                                             recordsSubTab = RecordsSubTab.History
                                         }
-                                    },
-                                    icon = { Text(tab.iconLabel(), fontSize = 18.sp) },
-                                    label = { Text(tab.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, maxLines = 1, softWrap = false) },
-                                )
+                                        AppTab.Analytics -> {
+                                            selectedTab = AppTab.Records
+                                            recordsSubTab = RecordsSubTab.Analytics
+                                        }
+                                        AppTab.Labels -> {
+                                            selectedTab = AppTab.Records
+                                            recordsSubTab = RecordsSubTab.Labels
+                                        }
+                                        else -> selectedTab = tab
+                                    }
+                                },
+                                onOpenSettings = { selectedTab = AppTab.Settings },
+                                onOpenTour = { showGuidedTour = true },
+                                repository = repository
+                            )
+
+                            AnimatedContent(
+                                targetState = selectedTab,
+                                transitionSpec = {
+                                    (fadeIn(animationSpec = tween(220, delayMillis = 40)) +
+                                        slideInVertically(animationSpec = tween(260)) { 20 })
+                                        .togetherWith(fadeOut(animationSpec = tween(140)))
+                                },
+                                label = "ScreenTransition"
+                            ) { targetTab ->
+                                when (targetTab) {
+                                    AppTab.Dashboard -> DashboardScreen(
+                                        repository = repository,
+                                        onOpenHistory = {
+                                            selectedTab = AppTab.Records
+                                            recordsSubTab = RecordsSubTab.History
+                                        },
+                                        onOpenScan = { selectedTab = AppTab.Scan }
+                                    )
+                                    AppTab.Scan -> ScanScreen(
+                                        repository = repository,
+                                        onOpenAssistant = { selectedTab = AppTab.Assistant }
+                                    )
+                                    AppTab.Records, AppTab.History, AppTab.Analytics, AppTab.Labels -> RecordsScreen(
+                                        repository = repository,
+                                        subTab = recordsSubTab,
+                                        onSubTabChanged = { recordsSubTab = it },
+                                        onExport = {
+                                            val lines = repository.exportCsv().lineSequence().count()
+                                            scope.launch { snackbarHostState.showSnackbar("CSV ready with $lines lines") }
+                                        },
+                                        onClear = {
+                                            repository.clear(context)
+                                            scope.launch { snackbarHostState.showSnackbar("All scans and batch data reset fresh.") }
+                                        },
+                                        onPrintLabels = { labels, batchName ->
+                                            QrLabelPrinter(context).print(labels, batchName)
+                                            scope.launch { snackbarHostState.showSnackbar("Printing ${labels.size} QR labels…") }
+                                        }
+                                    )
+                                    AppTab.Assistant -> AssistantScreen(repository = repository)
+                                    AppTab.Settings -> SettingsScreen(
+                                        isDark = isDark,
+                                        onToggleDark = { enabled ->
+                                            themePreference = if (enabled) ThemePreference.Dark else ThemePreference.Light
+                                        },
+                                        repository = repository,
+                                        onReplayDemo = {
+                                            showGuidedTour = true
+                                            selectedTab = AppTab.Dashboard
+                                        },
+                                        onBack = {
+                                            val user = repository.authManager?.getCurrentUser()
+                                            selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
+                                        },
+                                        onSignOut = {
+                                            selectedTab = AppTab.Dashboard
+                                            isAuthenticated = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
-                ) { innerPadding ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(AppBackground)
-                            .padding(innerPadding)
-                    ) {
-                        AppHeader(
-                            selectedTab = selectedTab,
-                            onSelectTab = { tab ->
-                                when (tab) {
-                                    AppTab.History -> {
-                                        selectedTab = AppTab.Records
-                                        recordsSubTab = RecordsSubTab.History
-                                    }
-                                    AppTab.Analytics -> {
-                                        selectedTab = AppTab.Records
-                                        recordsSubTab = RecordsSubTab.Analytics
-                                    }
-                                    AppTab.Labels -> {
-                                        selectedTab = AppTab.Records
-                                        recordsSubTab = RecordsSubTab.Labels
-                                    }
-                                    else -> selectedTab = tab
+
+                    if (showGuidedTour) {
+                        GuidedTourOverlay(
+                            onNavigate = { tab, subTab ->
+                                selectedTab = tab
+                                if (subTab != null) {
+                                    recordsSubTab = subTab
                                 }
                             },
-                            onOpenSettings = { selectedTab = AppTab.Settings },
-                            repository = repository
+                            onDismiss = {
+                                showGuidedTour = false
+                                PleuroTechRepository.setOnboardingCompleted(context, true)
+                                val user = repository.authManager?.getCurrentUser()
+                                selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
+                            }
                         )
-                        when (selectedTab) {
-                            AppTab.Dashboard -> DashboardScreen(
-                                repository = repository,
-                                onOpenHistory = {
-                                    selectedTab = AppTab.Records
-                                    recordsSubTab = RecordsSubTab.History
-                                },
-                                onOpenScan = { selectedTab = AppTab.Scan }
-                            )
-                            AppTab.Scan -> ScanScreen(
-                                repository = repository,
-                                onOpenAssistant = { selectedTab = AppTab.Assistant }
-                            )
-                            AppTab.Records, AppTab.History, AppTab.Analytics, AppTab.Labels -> RecordsScreen(
-                                repository = repository,
-                                subTab = recordsSubTab,
-                                onSubTabChanged = { recordsSubTab = it },
-                                onExport = {
-                                    val lines = repository.exportCsv().lineSequence().count()
-                                    scope.launch { snackbarHostState.showSnackbar("CSV ready with $lines lines") }
-                                },
-                                onClear = {
-                                    repository.clear(context)
-                                    scope.launch { snackbarHostState.showSnackbar("All scans and batch data reset fresh.") }
-                                },
-                                onPrintLabels = { labels, batchName ->
-                                    QrLabelPrinter(context).print(labels, batchName)
-                                    scope.launch { snackbarHostState.showSnackbar("Printing ${labels.size} QR labels…") }
-                                }
-                            )
-                            AppTab.Assistant -> AssistantScreen(repository = repository)
-                            AppTab.Settings -> SettingsScreen(
-                                isDark = isDark,
-                                onToggleDark = { enabled ->
-                                    themePreference = if (enabled) ThemePreference.Dark else ThemePreference.Light
-                                },
-                                repository = repository,
-                                onBack = {
-                                    val user = repository.authManager?.getCurrentUser()
-                                    selectedTab = if (user?.isOwner == false) AppTab.Scan else AppTab.Dashboard
-                                },
-                                onSignOut = {
-                                    selectedTab = AppTab.Dashboard
-                                    isAuthenticated = false
-                                }
-                            )
-                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AppTabIcon(tab: AppTab, isSelected: Boolean) {
+    val color = if (isSelected) ScanResult.ClassA.color else TextMuted
+    val iconModifier = Modifier.size(20.dp)
+    when (tab) {
+        AppTab.Dashboard -> HomeVectorIcon(color = color, modifier = iconModifier)
+        AppTab.Scan -> CameraVectorIcon(color = color, modifier = iconModifier)
+        AppTab.Records, AppTab.History, AppTab.Analytics, AppTab.Labels -> DocumentVectorIcon(color = color, modifier = iconModifier)
+        AppTab.Assistant -> SparklesVectorIcon(color = color, modifier = iconModifier)
+        AppTab.Settings -> SettingsVectorIcon(color = color, modifier = iconModifier)
     }
 }
 
@@ -418,50 +534,98 @@ private fun AppHeader(
     selectedTab: AppTab,
     onSelectTab: (AppTab) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTour: () -> Unit = {},
     repository: PleuroTechRepository
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val sync = repository.syncManager
     val pending = sync?.getPendingCount() ?: 0
     val online = sync?.isOnline() ?: false
+    val user = repository.authManager?.getCurrentUser()
+    val isOwner = user?.isOwner ?: true
+
+    val initials = remember(user?.name) {
+        user?.name?.split(" ")?.filter { it.isNotEmpty() }?.take(2)?.map { it.first().uppercase() }?.joinToString("") ?: "PT"
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(AppBackground)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text(
-                text = "PleuroTech",
-                color = TextPrimary,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            val user = repository.authManager?.getCurrentUser()
-            Text(
-                text = if (user != null) "${user.name} · ${user.role}" else "Oyster mushroom farm intelligence",
-                color = TextMuted,
-                fontSize = 12.sp
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(ScanResult.ClassA.softColor)
+                    .border(1.dp, ScanResult.ClassA.color.copy(alpha = 0.3f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = initials,
+                    color = ScanResult.ClassA.color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = "PleuroTech",
+                    color = TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.3).sp
+                )
+                Text(
+                    text = if (user != null) "${user.name} · ${user.role}" else "Oyster mushroom farm",
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (pending > 0) {
-                StatusPill("☁️ $pending Pending", ScanResult.ClassB.color)
-            } else if (online) {
-                StatusPill("☁️ Synced", ScanResult.ClassA.color)
-            } else {
-                StatusPill("Farm Ready", ScanResult.ClassA.color)
+            // Minimalist Sync Status
+            val syncColor = if (pending > 0) ScanResult.ClassB.color else ScanResult.ClassA.color
+            val syncLabel = if (pending > 0) "$pending Pending" else if (online) "Online" else "Offline"
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(syncColor.copy(alpha = 0.12f))
+                    .border(1.dp, syncColor.copy(alpha = 0.25f), RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(syncColor)
+                )
+                Text(
+                    text = syncLabel,
+                    color = syncColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
+            // Minimalist Menu Action Button
             Box {
-                // 3-line Hamburger button
                 Box(
                     modifier = Modifier
                         .size(38.dp)
@@ -473,33 +637,23 @@ private fun AppHeader(
                 ) {
                     HamburgerIcon(
                         color = TextPrimary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                 }
 
-                // Dropdown Menu showing all features
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
                     modifier = Modifier
                         .background(Surface)
-                        .border(1.dp, Border, RoundedCornerShape(14.dp))
-                        .widthIn(min = 190.dp),
-                    shape = RoundedCornerShape(14.dp)
+                        .border(1.dp, Border, RoundedCornerShape(16.dp))
+                        .widthIn(min = 200.dp),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    val user = repository.authManager?.getCurrentUser()
-                    val isOwner = user?.isOwner ?: true
-
                     if (isOwner) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "Dashboard",
-                                    fontWeight = if (selectedTab == AppTab.Dashboard) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTab == AppTab.Dashboard) ScanResult.ClassA.color else TextPrimary
-                                )
-                            },
-                            leadingIcon = { Text("📊", fontSize = 16.sp) },
+                            text = { Text("Dashboard", fontWeight = if (selectedTab == AppTab.Dashboard) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Dashboard) ScanResult.ClassA.color else TextPrimary) },
+                            leadingIcon = { HomeVectorIcon(color = if (selectedTab == AppTab.Dashboard) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 onSelectTab(AppTab.Dashboard)
                                 menuExpanded = false
@@ -507,14 +661,8 @@ private fun AppHeader(
                         )
                     }
                     DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (isOwner) "Scan" else "Mushroom Scan",
-                                fontWeight = if (selectedTab == AppTab.Scan) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selectedTab == AppTab.Scan) ScanResult.ClassA.color else TextPrimary
-                            )
-                        },
-                        leadingIcon = { Text("📷", fontSize = 16.sp) },
+                        text = { Text(if (isOwner) "Scan" else "Mushroom Scan", fontWeight = if (selectedTab == AppTab.Scan) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Scan) ScanResult.ClassA.color else TextPrimary) },
+                        leadingIcon = { CameraVectorIcon(color = if (selectedTab == AppTab.Scan) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                         onClick = {
                             onSelectTab(AppTab.Scan)
                             menuExpanded = false
@@ -522,14 +670,8 @@ private fun AppHeader(
                     )
                     if (isOwner) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "Labels",
-                                    fontWeight = if (selectedTab == AppTab.Labels) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTab == AppTab.Labels) ScanResult.ClassA.color else TextPrimary
-                                )
-                            },
-                            leadingIcon = { Text("🏷️", fontSize = 16.sp) },
+                            text = { Text("QR Labels", fontWeight = if (selectedTab == AppTab.Labels) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Labels) ScanResult.ClassA.color else TextPrimary) },
+                            leadingIcon = { TagVectorIcon(color = if (selectedTab == AppTab.Labels) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 onSelectTab(AppTab.Labels)
                                 menuExpanded = false
@@ -537,14 +679,8 @@ private fun AppHeader(
                         )
                     }
                     DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (isOwner) "History" else "Recent Scans",
-                                fontWeight = if (selectedTab == AppTab.History) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selectedTab == AppTab.History) ScanResult.ClassA.color else TextPrimary
-                            )
-                        },
-                        leadingIcon = { Text("📜", fontSize = 16.sp) },
+                        text = { Text(if (isOwner) "Scan Logs" else "Recent Scans", fontWeight = if (selectedTab == AppTab.History) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.History) ScanResult.ClassA.color else TextPrimary) },
+                        leadingIcon = { DocumentVectorIcon(color = if (selectedTab == AppTab.History) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                         onClick = {
                             onSelectTab(AppTab.History)
                             menuExpanded = false
@@ -552,44 +688,34 @@ private fun AppHeader(
                     )
                     if (isOwner) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "Analytics",
-                                    fontWeight = if (selectedTab == AppTab.Analytics) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTab == AppTab.Analytics) ScanResult.ClassA.color else TextPrimary
-                                )
-                            },
-                            leadingIcon = { Text("📈", fontSize = 16.sp) },
+                            text = { Text("Analytics", fontWeight = if (selectedTab == AppTab.Analytics) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Analytics) ScanResult.ClassA.color else TextPrimary) },
+                            leadingIcon = { ChartVectorIcon(color = if (selectedTab == AppTab.Analytics) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 onSelectTab(AppTab.Analytics)
                                 menuExpanded = false
                             }
                         )
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "AI Assistant",
-                                    fontWeight = if (selectedTab == AppTab.Assistant) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTab == AppTab.Assistant) ScanResult.ClassA.color else TextPrimary
-                                )
-                            },
-                            leadingIcon = { Text("🤖", fontSize = 16.sp) },
+                            text = { Text("AI Copilot", fontWeight = if (selectedTab == AppTab.Assistant) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Assistant) ScanResult.ClassA.color else TextPrimary) },
+                            leadingIcon = { SparklesVectorIcon(color = if (selectedTab == AppTab.Assistant) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                             onClick = {
                                 onSelectTab(AppTab.Assistant)
                                 menuExpanded = false
                             }
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text("Interactive Tour", fontWeight = FontWeight.Medium, color = InfoBlue) },
+                        leadingIcon = { SparklesVectorIcon(color = InfoBlue, modifier = Modifier.size(18.dp)) },
+                        onClick = {
+                            onOpenTour()
+                            menuExpanded = false
+                        }
+                    )
                     HorizontalDivider(color = Border)
                     DropdownMenuItem(
-                        text = {
-                            Text(
-                                "Settings",
-                                fontWeight = if (selectedTab == AppTab.Settings) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selectedTab == AppTab.Settings) ScanResult.ClassA.color else TextPrimary
-                            )
-                        },
-                        leadingIcon = { Text("⚙️", fontSize = 16.sp) },
+                        text = { Text("Settings", fontWeight = if (selectedTab == AppTab.Settings) FontWeight.Bold else FontWeight.Medium, color = if (selectedTab == AppTab.Settings) ScanResult.ClassA.color else TextPrimary) },
+                        leadingIcon = { SettingsVectorIcon(color = if (selectedTab == AppTab.Settings) ScanResult.ClassA.color else TextMuted, modifier = Modifier.size(18.dp)) },
                         onClick = {
                             onOpenSettings()
                             menuExpanded = false
@@ -712,6 +838,7 @@ private fun SettingsScreen(
     isDark: Boolean,
     onToggleDark: (Boolean) -> Unit,
     repository: PleuroTechRepository,
+    onReplayDemo: () -> Unit,
     onBack: () -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -720,6 +847,7 @@ private fun SettingsScreen(
     var showPermissionsDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
+    var showFarmerManagerDialog by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
 
     if (showPrivacyDialog) {
@@ -733,6 +861,9 @@ private fun SettingsScreen(
     }
     if (showSyncDialog) {
         SupabaseSyncDialog(repository = repository, onDismiss = { showSyncDialog = false })
+    }
+    if (showFarmerManagerDialog) {
+        FarmerManagementDialog(repository = repository, onDismiss = { showFarmerManagerDialog = false })
     }
     if (showSignOutConfirm) {
         AlertDialog(
@@ -894,16 +1025,25 @@ private fun SettingsScreen(
         // Section 3: Support
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                text = "Support",
+                text = "Support & Tutorials",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
+            // Interactive Walkthrough Demo
+            SettingItemCard(
+                iconText = "🎓",
+                title = "Interactive Walkthrough Demo",
+                subtitle = "Replay step-by-step onboarding tutorial",
+                onClick = onReplayDemo
+            ) {
+                ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+            }
             // Help & FAQ
             SettingItemCard(
                 iconText = "❓",
                 title = "Help & FAQ",
-                subtitle = "Get answers",
+                subtitle = "Get answers & farm setup tips",
                 onClick = { showHelpDialog = true }
             ) {
                 ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
@@ -958,8 +1098,40 @@ private fun SettingsScreen(
                         fontSize = 12.sp,
                         color = TextMuted
                     )
+                    if (!user?.farmName.isNullOrBlank()) {
+                        Text(
+                            text = "🏡 ${user?.farmName}",
+                            fontSize = 11.sp,
+                            color = ScanResult.ClassA.color,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
                     StatusPill(label = user?.role ?: "Inspector", color = ScanResult.ClassA.color)
+                }
+            }
+
+            // Farm Owner: Manage & Create Farmers for this Farm
+            if (user?.isOwner == true) {
+                val farmerList = repository.authManager?.getFarmersForOwner(user.id) ?: emptyList()
+                SettingItemCard(
+                    iconText = "🧑‍🌾",
+                    title = "Manage Farm Workers",
+                    subtitle = if (farmerList.isEmpty()) "Add & create worker accounts for your farm" else "${farmerList.size} active farm workers",
+                    onClick = { showFarmerManagerDialog = true }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "+ Add Farmer",
+                            color = ScanResult.ClassA.color,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        ChevronRightIcon(color = TextMuted, modifier = Modifier.size(14.dp))
+                    }
                 }
             }
 
@@ -976,6 +1148,252 @@ private fun SettingsScreen(
 
         Spacer(Modifier.height(16.dp))
     }
+}
+
+@Composable
+private fun FarmerManagementDialog(repository: PleuroTechRepository, onDismiss: () -> Unit) {
+    val auth = repository.authManager
+    val user = auth?.getCurrentUser()
+    val scope = rememberCoroutineScope()
+
+    var farmerList by remember { mutableStateOf(if (user != null) auth.getFarmersForOwner(user.id) else emptyList()) }
+    var isAdding by remember { mutableStateOf(false) }
+
+    var farmerName by remember { mutableStateOf("") }
+    var farmerEmail by remember { mutableStateOf("") }
+    var farmerPassword by remember { mutableStateOf("") }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(22.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("🧑‍🌾", fontSize = 22.sp)
+                Column {
+                    Text("Farm Worker Accounts", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                    Text(user?.farmName ?: "PleuroTech Farm", fontSize = 12.sp, color = ScanResult.ClassA.color, fontWeight = FontWeight.Medium)
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Farmers created here are automatically registered under your Farm Owner ID and will submit inspection logs to your farm records.",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    lineHeight = 16.sp
+                )
+
+                if (!isAdding) {
+                    // Farmer List Overview
+                    if (farmerList.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SurfaceAlt)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("No farm workers added yet.", color = TextMuted, fontSize = 13.sp)
+                                Text("Click below to create an account for your farmer.", color = TextMuted, fontSize = 11.sp)
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            farmerList.forEach { f ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(SurfaceAlt)
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(ScanResult.ClassA.color.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(f.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = ScanResult.ClassA.color)
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(f.name, fontWeight = FontWeight.SemiBold, color = TextPrimary, fontSize = 14.sp)
+                                        Text(f.email, color = TextMuted, fontSize = 11.sp)
+                                    }
+                                    StatusPill(label = "Active", color = ScanResult.ClassA.color)
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            isAdding = true
+                            statusMessage = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("+ Create New Farmer Account", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                } else {
+                    // Adding form
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(SurfaceAlt)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("NEW WORKER CREDENTIALS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ScanResult.ClassA.color)
+
+                        OutlinedTextField(
+                            value = farmerName,
+                            onValueChange = { farmerName = it },
+                            label = { Text("Worker Full Name") },
+                            placeholder = { Text("e.g. Pedro Santos") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ScanResult.ClassA.color,
+                                focusedLabelColor = ScanResult.ClassA.color
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = farmerEmail,
+                            onValueChange = { farmerEmail = it },
+                            label = { Text("Worker Login Email") },
+                            placeholder = { Text("pedro@farm.com") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ScanResult.ClassA.color,
+                                focusedLabelColor = ScanResult.ClassA.color
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = farmerPassword,
+                            onValueChange = { farmerPassword = it },
+                            label = { Text("Temporary Password") },
+                            placeholder = { Text("••••••••") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ScanResult.ClassA.color,
+                                focusedLabelColor = ScanResult.ClassA.color
+                            )
+                        )
+
+                        if (statusMessage != null) {
+                            Text(
+                                text = statusMessage!!,
+                                color = if (isError) ScanResult.Reject.color else ScanResult.ClassA.color,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    isAdding = false
+                                    statusMessage = null
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Cancel", color = TextPrimary)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (farmerName.isBlank() || farmerEmail.isBlank() || farmerPassword.isBlank()) {
+                                        statusMessage = "Please complete all fields."
+                                        isError = true
+                                        return@Button
+                                    }
+                                    if (user == null) {
+                                        statusMessage = "No active owner session."
+                                        isError = true
+                                        return@Button
+                                    }
+
+                                    isSubmitting = true
+                                    statusMessage = null
+                                    scope.launch {
+                                        val result = auth.createFarmerAccountByOwner(
+                                            farmerEmail = farmerEmail,
+                                            farmerPassword = farmerPassword,
+                                            farmerName = farmerName,
+                                            ownerProfile = user
+                                        )
+                                        isSubmitting = false
+                                        if (result.isSuccess) {
+                                            isError = false
+                                            statusMessage = "Farmer account created for ${farmerName.trim()}!"
+                                            farmerList = auth.getFarmersForOwner(user.id)
+                                            farmerName = ""
+                                            farmerEmail = ""
+                                            farmerPassword = ""
+                                            isAdding = false
+                                        } else {
+                                            isError = true
+                                            statusMessage = result.exceptionOrNull()?.message ?: "Failed to create account"
+                                        }
+                                    }
+                                },
+                                enabled = !isSubmitting,
+                                modifier = Modifier.weight(1.5f),
+                                colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                if (isSubmitting) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Save Worker", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = SurfaceAlt)
+            ) {
+                Text("Done", color = TextPrimary)
+            }
+        }
+    )
 }
 
 @Composable
@@ -1365,8 +1783,56 @@ private fun DashboardScreen(
     val trend = repository.trend()
     val alerts = repository.contaminationAlerts()
 
+    val isOwner = repository.authManager?.getCurrentUser()?.isOwner ?: true
     var inspectionModalScan by remember { mutableStateOf<ScanRecord?>(null) }
     var selectedShelfForModal by remember { mutableStateOf<ShelfSummary?>(null) }
+    var showAddRackDialog by remember { mutableStateOf(false) }
+
+    if (showAddRackDialog) {
+        val nextRackLetter = ('A'.code + repository.activeBatch.rackCount).toChar()
+        AlertDialog(
+            onDismissRequest = { showAddRackDialog = false },
+            containerColor = Surface,
+            shape = RoundedCornerShape(18.dp),
+            title = {
+                Text("Add Rack $nextRackLetter", fontWeight = FontWeight.Bold, color = TextPrimary)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Add Rack $nextRackLetter (Shelves ${nextRackLetter}1–${nextRackLetter}5) to batch \"${repository.activeBatch.name}\"?",
+                        color = TextPrimary,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        text = "This expands room capacity by 25 fruiting bags and creates scannable shelf codes immediately.",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        repository.addRackToActiveBatch()
+                        showAddRackDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ScanResult.ClassA.color),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("+ Confirm Add Rack", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showAddRackDialog = false },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Cancel", color = TextPrimary)
+                }
+            }
+        )
+    }
 
     if (inspectionModalScan != null) {
         InspectionDetailModal(
@@ -1417,6 +1883,8 @@ private fun DashboardScreen(
         item {
             ShelfMapPanel(
                 shelves = repository.shelfMap(),
+                isOwner = isOwner,
+                onAddRack = { showAddRackDialog = true },
                 onSelectShelf = { selectedShelfForModal = it }
             )
         }
@@ -1536,10 +2004,28 @@ data class ParsedQrBag(
 fun parseQrPayload(payload: String, repository: PleuroTechRepository): ParsedQrBag? {
     return try {
         val trimmed = payload.trim()
-        val bagNum = when {
-            trimmed.contains("/bag/") -> trimmed.substringAfter("/bag/").substringBefore("/").toIntOrNull()
-            trimmed.contains("/scan/") -> trimmed.substringAfter("/scan/").substringBefore("/").toIntOrNull()
+        val isConfirm = trimmed.contains("/confirm", ignoreCase = true) ||
+            trimmed.contains(":confirm", ignoreCase = true) ||
+            trimmed.contains("-confirm", ignoreCase = true) ||
+            trimmed.contains("confirm", ignoreCase = true)
+
+        // Check 1: Explicit Shelf Code (e.g. "A1", "B2", "Shelf A1", "Rack A Shelf 2", "A-1")
+        val shelfMatch = Regex("""(?:RACK\s*([A-D])\s*SHELF\s*([1-5])|SHELF\s*([A-D])[-_ ]?([1-5])|^([A-D])[-_ ]?([1-5]))""", RegexOption.IGNORE_CASE).find(trimmed)
+        val bagNumFromShelf = if (shelfMatch != null) {
+            val rackChar = (shelfMatch.groupValues[1].ifEmpty { shelfMatch.groupValues[3].ifEmpty { shelfMatch.groupValues[5] } }).first().uppercaseChar()
+            val shelfChar = (shelfMatch.groupValues[2].ifEmpty { shelfMatch.groupValues[4].ifEmpty { shelfMatch.groupValues[6] } }).toIntOrNull()
+            if (rackChar in 'A'..'D' && shelfChar != null && shelfChar in 1..5) {
+                val rackIndex = (rackChar - 'A').coerceIn(0, repository.activeBatch.rackCount - 1)
+                (rackIndex * repository.activeBatch.shelvesPerRack) + shelfChar
+            } else null
+        } else null
+
+        // Check 2: Bag number in URL / payload
+        val bagNum = bagNumFromShelf ?: when {
+            trimmed.contains("/bag/") -> trimmed.substringAfter("/bag/").substringBefore("/").substringBefore("?").toIntOrNull()
+            trimmed.contains("/scan/") -> trimmed.substringAfter("/scan/").substringBefore("/").substringBefore("?").toIntOrNull()
             trimmed.startsWith("BAG-", ignoreCase = true) -> trimmed.substringAfter("-").substringBefore("-").substringBefore("/").toIntOrNull()
+            trimmed.startsWith("PLEURO-", ignoreCase = true) -> trimmed.substringAfterLast(":").filter { it.isDigit() }.toIntOrNull()
             else -> trimmed.filter { it.isDigit() }.toIntOrNull()
         } ?: return null
 
@@ -1549,15 +2035,7 @@ fun parseQrPayload(payload: String, repository: PleuroTechRepository): ParsedQrB
             repository.activeBatch.id
         }
 
-        val qrType = if (trimmed.contains("/confirm", ignoreCase = true) ||
-            trimmed.contains(":confirm", ignoreCase = true) ||
-            trimmed.contains("-confirm", ignoreCase = true) ||
-            trimmed.contains("confirm", ignoreCase = true)
-        ) {
-            QrType.Confirmation
-        } else {
-            QrType.Identification
-        }
+        val qrType = if (isConfirm) QrType.Confirmation else QrType.Identification
 
         ParsedQrBag(
             batchId = batchId,
@@ -1594,6 +2072,48 @@ fun decodeQrFromBitmap(bitmap: Bitmap): String? {
     } catch (_: Exception) {}
 
     return null
+}
+
+fun decodeAndOrientBitmap(context: Context, uri: Uri): Bitmap? {
+    return try {
+        val orientation = try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val exif = android.media.ExifInterface(stream)
+                exif.getAttributeInt(
+                    android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+        } catch (_: Exception) {
+            android.media.ExifInterface.ORIENTATION_NORMAL
+        }
+
+        val rawBmp = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream)
+        } ?: return null
+
+        val matrix = android.graphics.Matrix()
+        when (orientation) {
+            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            android.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            android.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            else -> return rawBmp
+        }
+
+        val rotatedBmp = Bitmap.createBitmap(rawBmp, 0, 0, rawBmp.width, rawBmp.height, matrix, true)
+        if (rotatedBmp != rawBmp) {
+            rawBmp.recycle()
+        }
+        rotatedBmp
+    } catch (e: Exception) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
 }
 
 fun saveScanPhoto(context: Context, bitmap: Bitmap, bagNumber: Int): String? {
@@ -1645,163 +2165,153 @@ private fun ScanProcessTracker(
         label = "pipeline_progress"
     )
 
-    Card(
+    DataCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131920)),
-        border = BorderStroke(1.dp, Color(0xFF222C38))
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        // Telemetry Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Telemetry Header
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) Color(0xFF00E676)
-                                else if (scanStage == ScanStage.ReviewConfirmation) Color(0xFF00B0FF)
-                                else Color(0xFF00E676)
-                            )
-                    )
-                    Text(
-                        text = when (scanStage) {
-                            ScanStage.ScanQr -> "STEP 1 OF 3 · SCAN QR 1 (ID)"
-                            ScanStage.CaptureMushroom -> "STEP 2 OF 3 · SPECIMEN CAPTURE"
-                            ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "STEP 3 OF 3 · LOCATION CONFIRMED" else "STEP 3 OF 3 · SCAN QR 2 TO CONFIRM"
-                        },
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.8.sp
-                    )
-                }
-
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .size(8.dp)
+                        .clip(CircleShape)
                         .background(
-                            if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
-                                Color(0xFF00B0FF).copy(alpha = 0.15f)
-                            else
-                                Color(0xFF00E676).copy(alpha = 0.12f)
+                            if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) ScanResult.ClassA.color
+                            else if (scanStage == ScanStage.ReviewConfirmation) InfoBlue
+                            else ScanResult.ClassA.color
                         )
-                        .border(
-                            1.dp,
-                            if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
-                                Color(0xFF00B0FF).copy(alpha = 0.4f)
-                            else
-                                Color(0xFF00E676).copy(alpha = 0.3f),
-                            RoundedCornerShape(6.dp)
-                        )
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = when (scanStage) {
-                            ScanStage.ScanQr -> "33% · READY"
-                            ScanStage.CaptureMushroom -> "66% · LOCKED"
-                            ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "100% · VERIFIED" else "85% · SCAN QR 2"
-                        },
-                        color = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) Color(0xFF00B0FF) else Color(0xFF00E676),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
+                )
+                Text(
+                    text = when (scanStage) {
+                        ScanStage.ScanQr -> "STEP 1 OF 3 · SCAN QR 1 (ID)"
+                        ScanStage.CaptureMushroom -> "STEP 2 OF 3 · SPECIMEN CAPTURE"
+                        ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "STEP 3 OF 3 · LOCATION CONFIRMED" else "STEP 3 OF 3 · SCAN QR 2 TO CONFIRM"
+                    },
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.8.sp
+                )
             }
 
-            // High-Tech Animated Linear Progress Bar
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
+                            InfoBlue.copy(alpha = 0.12f)
+                        else
+                            ScanResult.ClassA.softColor
+                    )
+                    .border(
+                        1.dp,
+                        if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed)
+                            InfoBlue.copy(alpha = 0.35f)
+                        else
+                            ScanResult.ClassA.color.copy(alpha = 0.3f),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = when (scanStage) {
+                        ScanStage.ScanQr -> "33% · READY"
+                        ScanStage.CaptureMushroom -> "66% · LOCKED"
+                        ScanStage.ReviewConfirmation -> if (isQr2Confirmed) "100% · VERIFIED" else "85% · SCAN QR 2"
+                    },
+                    color = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) InfoBlue else ScanResult.ClassA.color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+            }
+        }
+
+        // Animated Linear Progress Bar
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(SurfaceAlt)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedProgress)
+                    .fillMaxHeight()
                     .clip(RoundedCornerShape(3.dp))
-                    .background(Color(0xFF1E2833))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(animatedProgress)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xFF00E676), Color(0xFF00B0FF))
-                            )
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(ScanResult.ClassA.color, InfoBlue)
                         )
-                )
-            }
+                    )
+            )
+        }
 
-            // Milestone Nodes Connected Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MilestoneNode(
-                    step = "1",
-                    title = "QR 1 (ID)",
-                    status = if (scanStage == ScanStage.ScanQr) "Active" else "Done",
-                    isActive = scanStage == ScanStage.ScanQr,
-                    isDone = scanStage != ScanStage.ScanQr
-                )
+        // Milestone Nodes Connected Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MilestoneNode(
+                step = "1",
+                title = "QR 1 (ID)",
+                status = if (scanStage == ScanStage.ScanQr) "Active" else "Done",
+                isActive = scanStage == ScanStage.ScanQr,
+                isDone = scanStage != ScanStage.ScanQr
+            )
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                        .height(1.dp)
-                        .background(if (scanStage != ScanStage.ScanQr) Color(0xFF00E676).copy(alpha = 0.6f) else Color(0xFF263238))
-                )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+                    .height(1.dp)
+                    .background(if (scanStage != ScanStage.ScanQr) ScanResult.ClassA.color.copy(alpha = 0.6f) else Border)
+            )
 
-                MilestoneNode(
-                    step = "2",
-                    title = "Specimen",
-                    status = when (scanStage) {
-                        ScanStage.ScanQr -> "Pending"
-                        ScanStage.CaptureMushroom -> "Bag #$targetBagNumber"
-                        ScanStage.ReviewConfirmation -> "Done"
-                    },
-                    isActive = scanStage == ScanStage.CaptureMushroom,
-                    isDone = scanStage == ScanStage.ReviewConfirmation
-                )
+            MilestoneNode(
+                step = "2",
+                title = "Specimen",
+                status = when (scanStage) {
+                    ScanStage.ScanQr -> "Pending"
+                    ScanStage.CaptureMushroom -> "Bag #$targetBagNumber"
+                    ScanStage.ReviewConfirmation -> "Done"
+                },
+                isActive = scanStage == ScanStage.CaptureMushroom,
+                isDone = scanStage == ScanStage.ReviewConfirmation
+            )
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                        .height(1.dp)
-                        .background(
-                            if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) Color(0xFF00E676).copy(alpha = 0.6f)
-                            else if (scanStage == ScanStage.ReviewConfirmation) Color(0xFF00B0FF).copy(alpha = 0.6f)
-                            else Color(0xFF263238)
-                        )
-                )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+                    .height(1.dp)
+                    .background(
+                        if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) ScanResult.ClassA.color.copy(alpha = 0.6f)
+                        else if (scanStage == ScanStage.ReviewConfirmation) InfoBlue.copy(alpha = 0.6f)
+                        else Border
+                    )
+            )
 
-                MilestoneNode(
-                    step = "3",
-                    title = "QR 2 Confirm",
-                    status = when {
-                        scanStage != ScanStage.ReviewConfirmation -> "Pending"
-                        isQr2Confirmed -> "Verified"
-                        else -> "Scan 2"
-                    },
-                    isActive = scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed,
-                    isDone = scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed
-                )
-            }
+            MilestoneNode(
+                step = "3",
+                title = "QR 2 Confirm",
+                status = when {
+                    scanStage != ScanStage.ReviewConfirmation -> "Pending"
+                    isQr2Confirmed -> "Verified"
+                    else -> "Scan 2"
+                },
+                isActive = scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed,
+                isDone = scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed
+            )
         }
     }
 }
@@ -1824,16 +2334,16 @@ private fun MilestoneNode(
                 .clip(CircleShape)
                 .background(
                     when {
-                        isDone -> Color(0xFF00E676)
-                        isActive -> Color(0xFF00E676).copy(alpha = 0.2f)
-                        else -> Color(0xFF1E2833)
+                        isDone -> ScanResult.ClassA.color
+                        isActive -> ScanResult.ClassA.softColor
+                        else -> SurfaceAlt
                     }
                 )
                 .border(
                     width = 1.dp,
                     color = when {
-                        isDone || isActive -> Color(0xFF00E676)
-                        else -> Color(0xFF37474F)
+                        isDone || isActive -> ScanResult.ClassA.color
+                        else -> Border
                     },
                     shape = CircleShape
                 ),
@@ -1841,7 +2351,7 @@ private fun MilestoneNode(
         ) {
             Text(
                 text = if (isDone) "✓" else step,
-                color = if (isDone) Color.Black else if (isActive) Color(0xFF00E676) else Color(0xFF90A4AE),
+                color = if (isDone) Color.White else if (isActive) ScanResult.ClassA.color else TextMuted,
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp
             )
@@ -1850,15 +2360,15 @@ private fun MilestoneNode(
         Column {
             Text(
                 text = title,
-                color = if (isActive || isDone) Color.White else Color(0xFF78909C),
+                color = if (isActive || isDone) TextPrimary else TextMuted,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                 fontSize = 11.sp
             )
             Text(
                 text = status,
-                color = if (isActive || isDone) Color(0xFF00E676) else Color(0xFF546E7A),
+                color = if (isActive || isDone) ScanResult.ClassA.color else TextMuted,
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace
+                fontWeight = FontWeight.Medium
             )
         }
     }
@@ -1877,9 +2387,8 @@ private fun MobileScanPanel(
     qrConflictDetected: Boolean,
     conflictingBagNumber: Int?,
     qrErrorMessage: String?,
-    onScanQrClick: () -> Unit,
-    onTakeMushroomPhotoClick: () -> Unit,
-    onScanQr2Click: () -> Unit,
+    onAutoQrDetected: (String) -> Unit,
+    onAutoPhotoCaptured: (Bitmap) -> Unit,
     onRetakePhoto: () -> Unit,
     onConfirmScan: () -> Unit,
     onRescanQr: () -> Unit,
@@ -1894,339 +2403,279 @@ private fun MobileScanPanel(
             isQr2Confirmed = isQr2Confirmed
         )
 
-        // 2. High-Tech Precision Viewfinder Viewport
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.30f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF0F1318), Color(0xFF151C24), Color(0xFF0B0E12))
-                    )
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = if (qrConflictDetected || inferenceSummary?.hasContamination == true) ScanResult.Reject.color else Color(0xFF263342),
-                    shape = RoundedCornerShape(16.dp)
-                )
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                if (capturedBitmap != null) {
-                    val img = capturedBitmap.asImageBitmap()
-                    drawImage(
-                        image = img,
-                        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-                    )
-                } else {
-                    // Precision grid lines
-                    val gridColor = Color.White.copy(alpha = 0.04f)
-                    for (i in 1..5) {
-                        val y = (size.height * i) / 6f
-                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
-                    }
-                    for (i in 1..7) {
-                        val x = size.width * i / 8f
-                        drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
-                    }
-                }
-
-                // High-Tech Viewfinder Corner Brackets
-                val bracketColor = when {
-                    qrConflictDetected || inferenceSummary?.hasContamination == true -> ScanResult.Reject.color
-                    scanStage != ScanStage.ScanQr -> Color(0xFF00E676)
-                    else -> Color(0xFF00B0FF)
-                }
-                val bLen = 22.dp.toPx()
-                val bStroke = 3.dp.toPx()
-                val pad = 16.dp.toPx()
-
-                // Top-Left
-                drawLine(bracketColor, Offset(pad, pad), Offset(pad + bLen, pad), strokeWidth = bStroke, cap = StrokeCap.Round)
-                drawLine(bracketColor, Offset(pad, pad), Offset(pad, pad + bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
-
-                // Top-Right
-                drawLine(bracketColor, Offset(size.width - pad, pad), Offset(size.width - pad - bLen, pad), strokeWidth = bStroke, cap = StrokeCap.Round)
-                drawLine(bracketColor, Offset(size.width - pad, pad), Offset(size.width - pad, pad + bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
-
-                // Bottom-Left
-                drawLine(bracketColor, Offset(pad, size.height - pad), Offset(pad + bLen, size.height - pad), strokeWidth = bStroke, cap = StrokeCap.Round)
-                drawLine(bracketColor, Offset(pad, size.height - pad), Offset(pad, size.height - pad - bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
-
-                // Bottom-Right
-                drawLine(bracketColor, Offset(size.width - pad, size.height - pad), Offset(size.width - pad - bLen, size.height - pad), strokeWidth = bStroke, cap = StrokeCap.Round)
-                drawLine(bracketColor, Offset(size.width - pad, size.height - pad), Offset(size.width - pad, size.height - pad - bLen), strokeWidth = bStroke, cap = StrokeCap.Round)
-
-                // Detections: Bounding boxes and tags
-                val textPaint = android.graphics.Paint().apply {
-                    color = android.graphics.Color.WHITE
-                    textSize = 10.dp.toPx()
-                    isAntiAlias = true
-                    isFakeBoldText = true
-                }
-                inferenceSummary?.detections?.forEach { det ->
-                    val strokeColor = Color(det.category.colorHex)
-                    val left = det.box.left * size.width
-                    val top = det.box.top * size.height
-                    val right = det.box.right * size.width
-                    val bottom = det.box.bottom * size.height
-                    val boxWidth = max(20f, right - left)
-                    val boxHeight = max(20f, bottom - top)
-
-                    drawRoundRect(
-                        color = strokeColor,
-                        topLeft = Offset(left, top),
-                        size = Size(boxWidth, boxHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()),
-                        style = Stroke(width = 2.5.dp.toPx())
-                    )
-
-                    drawRoundRect(
-                        color = strokeColor.copy(alpha = 0.18f),
-                        topLeft = Offset(left, top),
-                        size = Size(boxWidth, boxHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
-                    )
-
-                    val tagText = "${det.label.replace('_', ' ')} ${(det.confidence * 100).toInt()}%"
-                    val tagWidth = textPaint.measureText(tagText) + 12.dp.toPx()
-                    val tagHeight = 16.dp.toPx()
-                    val tagTop = max(0f, top - tagHeight - 2.dp.toPx())
-
-                    drawRoundRect(
-                        color = strokeColor,
-                        topLeft = Offset(left, tagTop),
-                        size = Size(tagWidth, tagHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
-                    )
-                    drawContext.canvas.nativeCanvas.drawText(
-                        tagText,
-                        left + 6.dp.toPx(),
-                        tagTop + tagHeight - 4.dp.toPx(),
-                        textPaint
-                    )
-                }
-            }
-
-            // Viewport HUD Overlay Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+        // 2. Active Stage View / Live Auto Scanner
+        when (scanStage) {
+            ScanStage.ScanQr -> {
+                LiveAutoScannerView(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.82f))
-                        .border(
-                            1.dp,
-                            if (scanStage != ScanStage.ScanQr) Color(0xFF00E676) else Color(0xFF00B0FF),
-                            RoundedCornerShape(8.dp)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = when {
-                                qrConflictDetected -> "⚠️ MISMATCH · BAG #$conflictingBagNumber"
-                                scanStage == ScanStage.ScanQr -> "🏷️ STEP 1: SCAN QR 1 (ID)"
-                                scanStage == ScanStage.CaptureMushroom -> "🔒 LOCKED · BAG #$targetBagNumber · SHELF $targetShelfCode"
-                                scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed -> "🔒 LOCATION VERIFIED · BAG #$targetBagNumber"
-                                else -> "🔒 AWAITING QR 2 · BAG #$targetBagNumber"
-                            },
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                        if (scanStage != ScanStage.ScanQr) {
-                            Text(
-                                text = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) "AWAITING" else "VERIFIED",
-                                color = if (scanStage == ScanStage.ReviewConfirmation && !isQr2Confirmed) Color(0xFF00B0FF) else Color(0xFF00E676),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-
-                if (inferenceSummary != null) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.82f))
-                            .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = "⚡ ${inferenceSummary.inferenceTimeMs}ms · YOLOv8s",
-                            color = Color(0xFF00E676),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-            }
-
-            // Viewport Center Guidance
-            if (capturedBitmap == null && !isScanning) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    when (scanStage) {
-                        ScanStage.ScanQr -> {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF00B0FF).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFF00B0FF).copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("🏷️", fontSize = 28.sp)
-                            }
-                            Text(
-                                text = "ALIGN BAG COLLAR QR CODE",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                letterSpacing = 0.5.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = "Scan collar barcode first to confirm grow bag & shelf placement.",
-                                color = Color.White.copy(alpha = 0.65f),
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 15.sp
-                            )
-                        }
-                        ScanStage.CaptureMushroom -> {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF00E676).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("🍄", fontSize = 28.sp)
-                            }
-                            Text(
-                                text = "FRAME OYSTER MUSHROOM CLUSTER",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                letterSpacing = 0.5.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = "Target locked to Bag #$targetBagNumber on Shelf $targetShelfCode.\nAnti-conflict QR cross-validation active.",
-                                color = Color.White.copy(alpha = 0.65f),
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 15.sp
-                            )
-                        }
-                        ScanStage.ReviewConfirmation -> {}
-                    }
-                }
-            }
-
-            // Bottom Detection Result Overlay (during review)
-            if (scanStage == ScanStage.ReviewConfirmation && inferenceSummary != null) {
-                val count = inferenceSummary.detections.size
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.82f))
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .height(370.dp),
+                    isQrMode = true,
+                    instructionTitle = "Point Camera at Collar / Shelf QR 1",
+                    instructionSubtitle = "⚡ Automatic Real-Time Scanner · No clicking required",
+                    onQrDetected = onAutoQrDetected
+                )
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141920)),
+                    border = BorderStroke(1.dp, Color(0xFF222C38))
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("🎯", fontSize = 14.sp)
                             Text(
-                                text = if (count > 1) "$count Mushrooms Detected" else inferenceSummary.primaryLabel.replace("_", " "),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            val subtitle = if (count > 1) {
-                                inferenceSummary.detections.groupBy { it.label.replace("_", " ") }
-                                    .entries.joinToString(" · ") { "${it.value.size} ${it.key}" }
-                            } else if (count == 1) {
-                                "Grade: ${inferenceSummary.primaryGrade.name} · Confidence: ${(inferenceSummary.primaryConfidence * 100).toInt()}%"
-                            } else {
-                                "No mushroom detected — try adjusting angle or distance"
-                            }
-                            Text(
-                                text = subtitle,
-                                color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) ScanResult.ClassA.color else TextMuted,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = "Current Target: Bag #$targetBagNumber (Shelf $targetShelfCode)",
+                                color = Color(0xFF90A4AE),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
-                        Spacer(Modifier.width(8.dp))
-                        StatusPill(
-                            label = if (inferenceSummary.hasContamination) "⚠️ Contaminated" else if (count > 0) inferenceSummary.primaryGrade.name else "No Match",
-                            color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) inferenceSummary.primaryGrade.color else TextMuted
-                        )
+                        TextButton(onClick = onChangeBagClick) {
+                            Text(
+                                "Manual Select",
+                                color = Color(0xFF00E676),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
 
-            // Frosted Loading Buffer Overlay
-            if (isScanning) {
+            ScanStage.CaptureMushroom -> {
+                LiveAutoScannerView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(410.dp),
+                    isQrMode = false,
+                    instructionTitle = "Step 2: Frame Mushroom Flush (Bag #$targetBagNumber)",
+                    instructionSubtitle = "Shelf $targetShelfCode locked · Aim camera & tap button below",
+                    onCaptureImage = onAutoPhotoCaptured
+                )
+
+                OutlinedButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    onClick = onRescanQr,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, Border)
+                ) {
+                    Text(
+                        "↺  SWITCH TO DIFFERENT QR CODE",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+
+            ScanStage.ReviewConfirmation -> {
+                // Viewport Box showing captured image & YOLOv8 bounding boxes
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .aspectRatio(1.30f)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Black.copy(alpha = 0.82f)),
-                    contentAlignment = Alignment.Center
+                        .background(Color(0xFF0F1318))
+                        .border(
+                            width = 1.5.dp,
+                            color = if (qrConflictDetected || inferenceSummary?.hasContamination == true) ScanResult.Reject.color else Color(0xFF263342),
+                            shape = RoundedCornerShape(16.dp)
+                        )
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    if (capturedBitmap != null) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val img = capturedBitmap.asImageBitmap()
+                            drawImage(
+                                image = img,
+                                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                            )
+
+                            // Detections: Bounding boxes and tags
+                            val textPaint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.WHITE
+                                textSize = 10.dp.toPx()
+                                isAntiAlias = true
+                                isFakeBoldText = true
+                            }
+                            inferenceSummary?.detections?.forEach { det ->
+                                val strokeColor = Color(det.category.colorHex)
+                                val left = det.box.left * size.width
+                                val top = det.box.top * size.height
+                                val right = det.box.right * size.width
+                                val bottom = det.box.bottom * size.height
+                                val boxWidth = max(20f, right - left)
+                                val boxHeight = max(20f, bottom - top)
+
+                                drawRoundRect(
+                                    color = strokeColor,
+                                    topLeft = Offset(left, top),
+                                    size = Size(boxWidth, boxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()),
+                                    style = Stroke(width = 2.5.dp.toPx())
+                                )
+
+                                drawRoundRect(
+                                    color = strokeColor.copy(alpha = 0.18f),
+                                    topLeft = Offset(left, top),
+                                    size = Size(boxWidth, boxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
+                                )
+
+                                val tagText = "${det.label.replace('_', ' ')} ${(det.confidence * 100).toInt()}%"
+                                val tagWidth = textPaint.measureText(tagText) + 12.dp.toPx()
+                                val tagHeight = 16.dp.toPx()
+                                val tagTop = max(0f, top - tagHeight - 2.dp.toPx())
+
+                                drawRoundRect(
+                                    color = strokeColor,
+                                    topLeft = Offset(left, tagTop),
+                                    size = Size(tagWidth, tagHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                )
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    tagText,
+                                    left + 6.dp.toPx(),
+                                    tagTop + tagHeight - 4.dp.toPx(),
+                                    textPaint
+                                )
+                            }
+                        }
+                    }
+
+                    // Bottom Detection Result Overlay
+                    if (inferenceSummary != null) {
+                        val count = inferenceSummary.detections.size
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.82f))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        text = if (count > 1) "$count Mushrooms Detected" else inferenceSummary.primaryLabel.replace("_", " "),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    val subtitle = if (count > 1) {
+                                        inferenceSummary.detections.groupBy { it.label.replace("_", " ") }
+                                            .entries.joinToString(" · ") { "${it.value.size} ${it.key}" }
+                                    } else if (count == 1) {
+                                        "Grade: ${inferenceSummary.primaryGrade.name} · Confidence: ${(inferenceSummary.primaryConfidence * 100).toInt()}%"
+                                    } else {
+                                        "No mushroom detected — try adjusting angle or distance"
+                                    }
+                                    Text(
+                                        text = subtitle,
+                                        color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) ScanResult.ClassA.color else TextMuted,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                StatusPill(
+                                    label = if (inferenceSummary.hasContamination) "⚠️ Contaminated" else if (count > 0) inferenceSummary.primaryGrade.name else "No Match",
+                                    color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) inferenceSummary.primaryGrade.color else TextMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Detection Breakdown in ReviewConfirmation
+                if (inferenceSummary != null && inferenceSummary.detections.isNotEmpty()) {
+                    val reviewBreakdown = inferenceSummary.detections.groupBy { it.label.replace('_', ' ') }
+                        .entries.joinToString(" · ") { "${it.value.size} ${it.key}" }
+                    DetectionBreakdownView(breakdownText = reviewBreakdown)
+                }
+
+                // If awaiting QR 2 confirmation: Show compact live auto-scanner for QR 2!
+                if (!isQr2Confirmed) {
+                    LiveAutoScannerView(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp),
+                        isQrMode = true,
+                        instructionTitle = "Step 3: Point at Confirmation QR 2 (Bag #$targetBagNumber)",
+                        instructionSubtitle = "⚡ Automatically verifies placement instantly without clicking",
+                        onQrDetected = onAutoQrDetected
+                    )
+                }
+
+                // Bottom confirmation and retake buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        onClick = onRetakePhoto,
+                        enabled = !isScanning,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, Border)
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(46.dp),
-                            color = Color(0xFF00E676),
-                            strokeWidth = 3.5.dp
-                        )
                         Text(
-                            text = if (scanStage == ScanStage.ScanQr) "DECODING BAG QR CODE..." else "RUNNING YOLOV8 INFERENCE...",
-                            color = Color.White,
+                            "↺  Retake",
+                            color = TextPrimary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            letterSpacing = 0.8.sp
+                            fontSize = 13.sp
                         )
-                        Text(
-                            text = if (scanStage == ScanStage.ScanQr) "Validating collar telemetry & shelf placement..." else "Executing multi-scale detection & anti-conflict check...",
-                            color = Color(0xFF90A4AE),
-                            fontSize = 11.sp
+                    }
+
+                    Button(
+                        modifier = Modifier
+                            .weight(1.4f)
+                            .height(50.dp),
+                        onClick = onConfirmScan,
+                        enabled = !isScanning,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isQr2Confirmed) Color(0xFF00C853) else Color(0xFF0288D1)
                         )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(if (isQr2Confirmed) "✓" else "⚡", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (isQr2Confirmed) "CONFIRM & SAVE" else "SAVE NOW",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Anti-conflict & Status Alerts
+        // Error and conflict warning banners
         if (qrErrorMessage != null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -2260,18 +2709,14 @@ private fun MobileScanPanel(
                     Text("⚠️", fontSize = 26.sp)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = if (scanStage == ScanStage.ReviewConfirmation) "QR 2 MISMATCH CONFLICT!" else "TELEMETRY CONFLICT DETECTED",
+                            text = "QR 2 MISMATCH CONFLICT!",
                             color = Color(0xFFFF5252),
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
                             letterSpacing = 0.5.sp
                         )
                         Text(
-                            text = if (scanStage == ScanStage.ReviewConfirmation) {
-                                "Target is Bag #$targetBagNumber (Shelf $targetShelfCode), but scanned Confirmation QR 2 belongs to Bag #$conflictingBagNumber!\nPlease scan the 2nd QR on Bag #$targetBagNumber to verify this mushroom."
-                            } else {
-                                "Locked target is Bag #$targetBagNumber (Shelf $targetShelfCode), but photo contains collar QR for Bag #$conflictingBagNumber!\nPlease Retake Photo to ensure you capture the correct specimen."
-                            },
+                            text = "Target is Bag #$targetBagNumber (Shelf $targetShelfCode), but scanned Confirmation QR 2 belongs to Bag #$conflictingBagNumber!\nPlease point camera at Bag #$targetBagNumber.",
                             color = Color.White,
                             fontSize = 11.sp,
                             lineHeight = 15.sp
@@ -2279,12 +2724,12 @@ private fun MobileScanPanel(
                     }
                 }
             }
-        } else if (scanStage == ScanStage.CaptureMushroom) {
+        } else if (scanStage == ScanStage.ReviewConfirmation && isQr2Confirmed) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1F17)),
-                border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.4f))
+                border = BorderStroke(1.dp, Color(0xFF00E676))
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -2293,287 +2738,25 @@ private fun MobileScanPanel(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00E676)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                     Column {
                         Text(
-                            text = "Bag #$targetBagNumber (Shelf $targetShelfCode) Verified",
+                            text = "QR 2 Verified · Location Confirmed",
                             color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
                         Text(
-                            text = "QR 1 locked. Please photograph the oyster mushroom cluster.",
+                            text = "Physical match verified for Bag #$targetBagNumber (Shelf $targetShelfCode). Ready to save.",
                             color = Color(0xFF81C784),
                             fontSize = 11.sp
                         )
-                    }
-                }
-            }
-        } else if (scanStage == ScanStage.ReviewConfirmation) {
-            if (isQr2Confirmed) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1F17)),
-                    border = BorderStroke(1.dp, Color(0xFF00E676))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00E676)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("✓", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        Column {
-                            Text(
-                                text = "QR 2 Verified · Location Confirmed",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "Physical match verified for Bag #$targetBagNumber (Shelf $targetShelfCode). Ready to save.",
-                                color = Color(0xFF81C784),
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-            } else {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF101C24)),
-                    border = BorderStroke(1.dp, Color(0xFF00B0FF).copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00B0FF).copy(alpha = 0.2f))
-                                .border(1.dp, Color(0xFF00B0FF), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("2", color = Color(0xFF00B0FF), fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        }
-                        Column {
-                            Text(
-                                text = "Step 3: Scan QR 2 to Verify Bag #$targetBagNumber",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "Scan QR 2 (Confirmation) on Bag #$targetBagNumber (Shelf $targetShelfCode) to verify this mushroom.",
-                                color = Color(0xFF90CAF9),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Action Controls by Stage
-        when (scanStage) {
-            ScanStage.ScanQr -> {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        onClick = onScanQrClick,
-                        enabled = !isScanning,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("📷", fontSize = 16.sp)
-                            Text(
-                                "SCAN QR 1 (BAG ID)",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                letterSpacing = 0.8.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF141920)),
-                        border = BorderStroke(1.dp, Color(0xFF222C38))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text("🎯", fontSize = 14.sp)
-                                Text(
-                                    text = "Target: Bag #$targetBagNumber (Shelf $targetShelfCode)",
-                                    color = Color(0xFF90A4AE),
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                            TextButton(onClick = onChangeBagClick) {
-                                Text(
-                                    "Manual Select",
-                                    color = Color(0xFF00E676),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            ScanStage.CaptureMushroom -> {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        onClick = onTakeMushroomPhotoClick,
-                        enabled = !isScanning,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("📸", fontSize = 16.sp)
-                            Text(
-                                "CAPTURE SPECIMEN (BAG #$targetBagNumber)",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                letterSpacing = 0.8.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                    OutlinedButton(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        onClick = onRescanQr,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.5.dp, Border)
-                    ) {
-                        Text(
-                            "↺  SWITCH TO DIFFERENT QR CODE",
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-            }
-            ScanStage.ReviewConfirmation -> {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp),
-                            onClick = onRetakePhoto,
-                            enabled = !isScanning,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.5.dp, Border)
-                        ) {
-                            Text(
-                                "↺  Retake",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        if (isQr2Confirmed) {
-                            Button(
-                                modifier = Modifier
-                                    .weight(1.4f)
-                                    .height(50.dp),
-                                onClick = onConfirmScan,
-                                enabled = !isScanning,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("✓", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        "CONFIRM & SAVE",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                }
-                            }
-                        } else {
-                            Button(
-                                modifier = Modifier
-                                    .weight(1.4f)
-                                    .height(50.dp),
-                                onClick = onScanQr2Click,
-                                enabled = !isScanning,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("📷", fontSize = 15.sp)
-                                    Text(
-                                        "SCAN QR 2 CONFIRM",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -2622,7 +2805,7 @@ private fun MobileScanPanel(
                 Column {
                     Text("Inspection Guidance", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text(
-                        "Align the camera squarely with the oyster mushroom cluster. Ensure even lighting and keep the grow bag in full frame for highest grading accuracy.",
+                        "Point the camera at any QR code for instant auto-scanning. In Step 2, capture a clear photo of the mushroom caps.",
                         color = TextMuted,
                         fontSize = 11.sp,
                         lineHeight = 15.sp
@@ -2655,7 +2838,6 @@ private fun ScanScreen(
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var scanStage by remember { mutableStateOf(ScanStage.ScanQr) }
-    var cameraIntent by remember { mutableStateOf(CameraIntent.ScanQr1) }
     var isQr2Confirmed by remember { mutableStateOf(false) }
 
     var targetBagNumber by remember { mutableIntStateOf(1) }
@@ -2672,165 +2854,74 @@ private fun ScanScreen(
     var activeDiseaseLabel by remember { mutableStateOf("") }
     var activeDiseaseConfidence by remember { mutableStateOf(0f) }
 
-    // High-Resolution Camera Launcher
-    var photoUri by remember { mutableStateOf<Uri?>(null) }
-
-    val cameraCaptureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && photoUri != null) {
-            isScanning = true
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val inputStream = context.contentResolver.openInputStream(photoUri!!)
-                    val bmp = BitmapFactory.decodeStream(inputStream)
-                    inputStream?.close()
-                    withContext(Dispatchers.Main) {
-                        if (bmp != null) {
-                            when (cameraIntent) {
-                                CameraIntent.ScanQr1 -> {
-                                    // STEP 1: Decode Collar QR 1 (ID)
-                                    val qrText = decodeQrFromBitmap(bmp)
-                                    val parsed = if (qrText != null) parseQrPayload(qrText, repository) else null
-                                    if (parsed != null) {
-                                        if (parsed.qrType == QrType.Confirmation) {
-                                            qrErrorMessage = "⚠️ This is QR 2 (Confirmation). Please scan QR 1 first to identify the bag."
-                                        } else {
-                                            targetBagNumber = parsed.bagNumber
-                                            qrErrorMessage = null
-                                            isQr2Confirmed = false
-                                            qrConflictDetected = false
-                                            conflictingBagNumber = null
-                                            scanStage = ScanStage.CaptureMushroom
-                                        }
-                                    } else {
-                                        qrErrorMessage = if (qrText != null) {
-                                            "Unrecognized QR payload ($qrText). Expected Bag QR 1."
-                                        } else {
-                                            "No QR code found in photo. Please frame the bag collar QR 1 closer."
-                                        }
-                                    }
-                                    isScanning = false
-                                }
-                                CameraIntent.CaptureMushroom -> {
-                                    // STEP 2: Process Mushroom Photo & Anti-Conflict Cross-Check
-                                    capturedBitmap = bmp
-                                    isQr2Confirmed = false
-
-                                    // Anti-conflict: If collar QR is visible in the mushroom photo, verify it matches
-                                    val secondQr = decodeQrFromBitmap(bmp)
-                                    val secondParsed = if (secondQr != null) parseQrPayload(secondQr, repository) else null
-                                    if (secondParsed != null && secondParsed.bagNumber != targetBagNumber) {
-                                        qrConflictDetected = true
-                                        conflictingBagNumber = secondParsed.bagNumber
-                                    } else {
-                                        qrConflictDetected = false
-                                        conflictingBagNumber = null
-                                    }
-
-                                    // Run YOLOv8 multi-scale object detection
-                                    val summary = detector.detect(bmp)
-                                    inferenceSummary = summary
-                                    isScanning = false
-                                    scanStage = ScanStage.ReviewConfirmation
-
-                                    if (summary.hasContamination) {
-                                        activeDiseaseLabel = summary.primaryLabel
-                                        activeDiseaseConfidence = summary.primaryConfidence
-                                        showDiseaseDialog = true
-                                        alarmManager.triggerContaminationAlarm()
-                                    }
-                                }
-                                CameraIntent.ScanQr2Confirm -> {
-                                    // STEP 3: Decode Confirmation QR 2 (Location Verification)
-                                    val qrText = decodeQrFromBitmap(bmp)
-                                    val parsed = if (qrText != null) parseQrPayload(qrText, repository) else null
-                                    if (parsed != null) {
-                                        if (parsed.bagNumber == targetBagNumber) {
-                                            // Matches locked bag!
-                                            isQr2Confirmed = true
-                                            qrConflictDetected = false
-                                            conflictingBagNumber = null
-                                            qrErrorMessage = null
-                                        } else {
-                                            // Belongs to a different bag!
-                                            qrConflictDetected = true
-                                            conflictingBagNumber = parsed.bagNumber
-                                            isQr2Confirmed = false
-                                            qrErrorMessage = "QR 2 mismatch: Scanned Bag #${parsed.bagNumber}, but target is Bag #$targetBagNumber."
-                                        }
-                                    } else {
-                                        qrErrorMessage = if (qrText != null) {
-                                            "Unrecognized QR payload ($qrText). Expected Confirmation QR 2 for Bag #$targetBagNumber."
-                                        } else {
-                                            "No QR code found. Please align camera squarely with QR 2 on Bag #$targetBagNumber."
-                                        }
-                                    }
-                                    isScanning = false
-                                }
-                            }
-                        } else {
-                            isScanning = false
-                        }
+    val onAutoQrDetected: (String) -> Unit = { rawText ->
+        when (scanStage) {
+            ScanStage.ScanQr -> {
+                val parsed = parseQrPayload(rawText, repository)
+                if (parsed != null) {
+                    if (parsed.qrType == QrType.Confirmation) {
+                        qrErrorMessage = "⚠️ This is QR 2 (Confirmation). Please scan QR 1 first to identify the bag."
+                    } else {
+                        targetBagNumber = parsed.bagNumber
+                        qrErrorMessage = null
+                        isQr2Confirmed = false
+                        qrConflictDetected = false
+                        conflictingBagNumber = null
+                        scanStage = ScanStage.CaptureMushroom
                     }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) { isScanning = false }
+                } else {
+                    qrErrorMessage = "Unrecognized QR ($rawText). Expected Bag QR 1."
+                }
+            }
+            ScanStage.ReviewConfirmation -> {
+                val parsed = parseQrPayload(rawText, repository)
+                if (parsed != null) {
+                    if (parsed.bagNumber == targetBagNumber) {
+                        isQr2Confirmed = true
+                        qrConflictDetected = false
+                        conflictingBagNumber = null
+                        qrErrorMessage = null
+                    } else {
+                        qrConflictDetected = true
+                        conflictingBagNumber = parsed.bagNumber
+                        isQr2Confirmed = false
+                        qrErrorMessage = "QR 2 mismatch: Scanned Bag #${parsed.bagNumber}, but target is Bag #$targetBagNumber."
+                    }
+                }
+            }
+            else -> {}
+        }
+    }
+
+    val onAutoPhotoCaptured: (Bitmap) -> Unit = { bmp ->
+        capturedBitmap = bmp
+        isQr2Confirmed = false
+        isScanning = true
+        scope.launch(Dispatchers.IO) {
+            val secondQr = decodeQrFromBitmap(bmp)
+            val secondParsed = if (secondQr != null) parseQrPayload(secondQr, repository) else null
+            if (secondParsed != null && secondParsed.bagNumber != targetBagNumber) {
+                qrConflictDetected = true
+                conflictingBagNumber = secondParsed.bagNumber
+            } else {
+                qrConflictDetected = false
+                conflictingBagNumber = null
+            }
+
+            val summary = detector.detect(bmp)
+            withContext(Dispatchers.Main) {
+                inferenceSummary = summary
+                isScanning = false
+                scanStage = ScanStage.ReviewConfirmation
+
+                if (summary.hasContamination) {
+                    activeDiseaseLabel = summary.primaryLabel
+                    activeDiseaseConfidence = summary.primaryConfidence
+                    showDiseaseDialog = true
+                    alarmManager.triggerContaminationAlarm()
                 }
             }
         }
-    }
-
-    val launchHighResCamera = {
-        try {
-            val file = File(context.cacheDir, "camera_scan_${System.currentTimeMillis()}.jpg")
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            photoUri = uri
-            cameraCaptureLauncher.launch(uri)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            launchHighResCamera()
-        }
-    }
-
-    val requestCameraAndLaunch = {
-        val hasPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (hasPermission) {
-            launchHighResCamera()
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    val onScanQrClick = {
-        cameraIntent = CameraIntent.ScanQr1
-        qrErrorMessage = null
-        requestCameraAndLaunch()
-    }
-
-    val onTakeMushroomPhotoClick = {
-        cameraIntent = CameraIntent.CaptureMushroom
-        requestCameraAndLaunch()
-    }
-
-    val onScanQr2Click = {
-        cameraIntent = CameraIntent.ScanQr2Confirm
-        qrErrorMessage = null
-        requestCameraAndLaunch()
     }
 
     val onRetakePhoto = {
@@ -2840,7 +2931,6 @@ private fun ScanScreen(
         conflictingBagNumber = null
         isQr2Confirmed = false
         scanStage = ScanStage.CaptureMushroom
-        onTakeMushroomPhotoClick()
     }
 
     val onRescanQr = {
@@ -2887,7 +2977,6 @@ private fun ScanScreen(
                     conflictingBagNumber = null
                     isQr2Confirmed = false
                     scanStage = ScanStage.ScanQr
-                    // Advance to next bag
                     targetBagNumber = if (targetBagNumber < repository.activeBatch.targetBagCount) targetBagNumber + 1 else 1
                 }
             }
@@ -3016,9 +3105,8 @@ private fun ScanScreen(
             qrConflictDetected = qrConflictDetected,
             conflictingBagNumber = conflictingBagNumber,
             qrErrorMessage = qrErrorMessage,
-            onScanQrClick = onScanQrClick,
-            onTakeMushroomPhotoClick = onTakeMushroomPhotoClick,
-            onScanQr2Click = onScanQr2Click,
+            onAutoQrDetected = onAutoQrDetected,
+            onAutoPhotoCaptured = onAutoPhotoCaptured,
             onRetakePhoto = onRetakePhoto,
             onConfirmScan = onConfirmScan,
             onRescanQr = onRescanQr,
@@ -3066,12 +3154,22 @@ private fun ScanScreen(
 
 @Composable
 private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLabel>, String) -> Unit) {
+    var isSingleMode by remember { mutableStateOf(false) }
+    var selectedSingleBag by remember { mutableIntStateOf(1) }
+    var startBag by remember { mutableIntStateOf(1) }
     var labelCount by remember { mutableIntStateOf(24) }
     var customText by remember { mutableStateOf("24") }
     var isPrinting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val labels = repository.bagLabels(labelCount)
     val batch = repository.activeBatch
+
+    val labels = remember(isSingleMode, selectedSingleBag, startBag, labelCount, batch) {
+        if (isSingleMode) {
+            repository.bagLabels(startBag = selectedSingleBag, limit = 1)
+        } else {
+            repository.bagLabels(startBag = startBag, limit = labelCount)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -3081,6 +3179,7 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         PageTitle("QR Labels", "Printable labels for oyster mushroom bag tracking")
+
         DataCard {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3090,204 +3189,369 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
                 Column(Modifier.weight(1f)) {
                     Text(batch.name, color = TextPrimary, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Generate physical labels, attach one to each bag, then scan it to open the exact bag record.",
+                        "Generate physical QR labels. Attach each sticker to its grow bag collar.",
                         color = TextMuted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
                 }
-                StatusPill("${labels.size}/${batch.targetBagCount}", ScanResult.ClassA.color)
-            }
-            SectionLabel("Print Quantity")
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(12, 24, 48, batch.targetBagCount).forEach { count ->
-                    val isAll = count == batch.targetBagCount
-                    val chipTitle = if (isAll) "All" else count.toString()
-                    val isSelected = labelCount == count
-                    val bg by animateColorAsState(
-                        targetValue = if (isSelected) ScanResult.ClassA.color.copy(alpha = 0.2f) else SurfaceAlt,
-                        label = "chipBg"
-                    )
-                    val border by animateColorAsState(
-                        targetValue = if (isSelected) ScanResult.ClassA.color else Border,
-                        label = "chipBorder"
-                    )
-                    val textColor by animateColorAsState(
-                        targetValue = if (isSelected) ScanResult.ClassA.color else TextPrimary,
-                        label = "chipText"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(bg)
-                            .border(1.dp, border, RoundedCornerShape(10.dp))
-                            .clickable {
-                                labelCount = count
-                                customText = count.toString()
-                            }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = chipTitle,
-                            color = textColor,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
+                StatusPill("${labels.size} Selected", ScanResult.ClassA.color)
             }
 
-            /* ── Stable Stepper & Numeric Input Row ── */
+            // Mode Switcher: Single Bag vs Batch Range
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(SurfaceAlt.copy(alpha = 0.5f))
-                    .border(1.dp, Border, RoundedCornerShape(14.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SurfaceAlt)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Decrement button (−)
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(if (labelCount > 1) Surface else SurfaceAlt)
-                        .border(1.dp, if (labelCount > 1) Border else Color.Transparent, CircleShape)
-                        .clickable(enabled = labelCount > 1) {
-                            val next = (labelCount - 1).coerceAtLeast(1)
-                            labelCount = next
-                            customText = next.toString()
-                        },
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (!isSingleMode) ScanResult.ClassA.color.copy(alpha = 0.18f) else Color.Transparent)
+                        .border(1.dp, if (!isSingleMode) ScanResult.ClassA.color else Color.Transparent, RoundedCornerShape(8.dp))
+                        .clickable { isSingleMode = false }
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "−",
-                        color = if (labelCount > 1) TextPrimary else TextMuted.copy(alpha = 0.35f),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
+                        "📦 Batch Range",
+                        color = if (!isSingleMode) ScanResult.ClassA.color else TextMuted,
+                        fontWeight = if (!isSingleMode) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 12.sp
                     )
                 }
-
-                // Middle: Clean numeric input display
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Surface)
-                        .border(1.dp, ScanResult.ClassA.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    BasicTextField(
-                        value = customText,
-                        onValueChange = { text ->
-                            val digits = text.filter { it.isDigit() }.take(3)
-                            customText = digits
-                            digits.toIntOrNull()?.let { n ->
-                                labelCount = n.coerceIn(1, batch.targetBagCount)
-                            }
-                        },
-                        textStyle = LocalTextStyle.current.copy(
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            textAlign = TextAlign.Center
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.widthIn(min = 36.dp, max = 64.dp),
-                        decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.Center) {
-                                if (customText.isEmpty()) {
-                                    Text(
-                                        "0",
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextMuted.copy(alpha = 0.35f)
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "labels",
-                        color = TextMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                // Increment button (+)
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(if (labelCount < batch.targetBagCount) Surface else SurfaceAlt)
-                        .border(1.dp, if (labelCount < batch.targetBagCount) Border else Color.Transparent, CircleShape)
-                        .clickable(enabled = labelCount < batch.targetBagCount) {
-                            val next = (labelCount + 1).coerceAtMost(batch.targetBagCount)
-                            labelCount = next
-                            customText = next.toString()
-                        },
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSingleMode) ScanResult.ClassA.color.copy(alpha = 0.18f) else Color.Transparent)
+                        .border(1.dp, if (isSingleMode) ScanResult.ClassA.color else Color.Transparent, RoundedCornerShape(8.dp))
+                        .clickable { isSingleMode = true }
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "+",
-                        color = if (labelCount < batch.targetBagCount) TextPrimary else TextMuted.copy(alpha = 0.35f),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
+                        "🏷️ Single Bag",
+                        color = if (isSingleMode) ScanResult.ClassA.color else TextMuted,
+                        fontWeight = if (isSingleMode) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 12.sp
                     )
                 }
             }
 
-            // Quick increment helpers row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Range: 1 to ${batch.targetBagCount} bags",
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(5, 10, 20).forEach { step ->
+            if (isSingleMode) {
+                /* ── Single Bag Selection Mode ── */
+                SectionLabel("Select Specific Grow Bag")
+
+                val singleShelf = repository.shelfCodeForBag(selectedSingleBag)
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceAlt.copy(alpha = 0.5f))
+                        .border(1.dp, Border, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Decrement button (−)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (selectedSingleBag > 1) Surface else SurfaceAlt)
+                            .border(1.dp, if (selectedSingleBag > 1) Border else Color.Transparent, CircleShape)
+                            .clickable(enabled = selectedSingleBag > 1) {
+                                selectedSingleBag = (selectedSingleBag - 1).coerceAtLeast(1)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = "+$step",
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(SurfaceAlt)
-                                .border(1.dp, Border, RoundedCornerShape(6.dp))
-                                .clickable {
-                                    val next = (labelCount + step).coerceAtMost(batch.targetBagCount)
-                                    labelCount = next
-                                    customText = next.toString()
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            color = TextMuted,
-                            fontSize = 11.sp,
+                            "−",
+                            color = if (selectedSingleBag > 1) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Middle Bag & Shelf Indicator
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Bag #${selectedSingleBag}",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        Text(
+                            "Shelf Location: $singleShelf",
+                            color = ScanResult.ClassA.color,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    // Increment button (+)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (selectedSingleBag < batch.targetBagCount) Surface else SurfaceAlt)
+                            .border(1.dp, if (selectedSingleBag < batch.targetBagCount) Border else Color.Transparent, CircleShape)
+                            .clickable(enabled = selectedSingleBag < batch.targetBagCount) {
+                                selectedSingleBag = (selectedSingleBag + 1).coerceAtMost(batch.targetBagCount)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "+",
+                            color = if (selectedSingleBag < batch.targetBagCount) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Quick jump to individual bags
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(1, 2, 3, 5, 6, 7, 12, 24).forEach { bagNum ->
+                        val isSel = selectedSingleBag == bagNum
+                        val shelf = repository.shelfCodeForBag(bagNum)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) ScanResult.ClassA.color.copy(alpha = 0.2f) else SurfaceAlt)
+                                .border(1.dp, if (isSel) ScanResult.ClassA.color else Border, RoundedCornerShape(8.dp))
+                                .clickable { selectedSingleBag = bagNum }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "#$bagNum",
+                                    color = if (isSel) ScanResult.ClassA.color else TextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    shelf,
+                                    color = if (isSel) ScanResult.ClassA.color else TextMuted,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                /* ── Batch Range Selection Mode ── */
+                SectionLabel("Select Quantity / Rack Presets")
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val quickPresets = listOf(12, 24, 48).filter { it < batch.targetBagCount } + listOf(batch.targetBagCount)
+                    quickPresets.distinct().forEach { count ->
+                        val isAll = count == batch.targetBagCount
+                        val chipTitle = if (isAll) "All $count" else "$count Bags"
+                        val isSelected = labelCount == count
+                        val bg by animateColorAsState(
+                            targetValue = if (isSelected) ScanResult.ClassA.color.copy(alpha = 0.2f) else SurfaceAlt,
+                            label = "chipBg"
+                        )
+                        val border by animateColorAsState(
+                            targetValue = if (isSelected) ScanResult.ClassA.color else Border,
+                            label = "chipBorder"
+                        )
+                        val textColor by animateColorAsState(
+                            targetValue = if (isSelected) ScanResult.ClassA.color else TextPrimary,
+                            label = "chipText"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(bg)
+                                .border(1.dp, border, RoundedCornerShape(10.dp))
+                                .clickable {
+                                    labelCount = count
+                                    customText = count.toString()
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = chipTitle,
+                                color = textColor,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                // Dynamic Rack Presets (Scrollable, adapts to added racks)
+                val totalShelves = (batch.rackCount * batch.shelvesPerRack).coerceAtLeast(1)
+                val bagsPerShelf = (batch.targetBagCount / totalShelves).coerceAtLeast(1)
+                val bagsPerRack = (batch.shelvesPerRack * bagsPerShelf).coerceAtLeast(1)
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    (1..batch.rackCount).forEach { rIdx ->
+                        val rackLetter = ('A'.code + rIdx - 1).toChar()
+                        val rStart = (rIdx - 1) * bagsPerRack + 1
+                        val rEnd = (rStart + bagsPerRack - 1).coerceAtMost(batch.targetBagCount)
+                        val rCount = (rEnd - rStart + 1).coerceAtLeast(1)
+                        val isSel = startBag == rStart && labelCount == rCount
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) ScanResult.ClassA.color.copy(alpha = 0.2f) else SurfaceAlt)
+                                .border(1.dp, if (isSel) ScanResult.ClassA.color else Border, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    startBag = rStart
+                                    labelCount = rCount
+                                    customText = rCount.toString()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Rack $rackLetter ($rStart–$rEnd)",
+                                color = if (isSel) ScanResult.ClassA.color else TextPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                /* ── Stable Stepper & Numeric Input Row ── */
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceAlt.copy(alpha = 0.5f))
+                        .border(1.dp, Border, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Decrement button (−)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (labelCount > 1) Surface else SurfaceAlt)
+                            .border(1.dp, if (labelCount > 1) Border else Color.Transparent, CircleShape)
+                            .clickable(enabled = labelCount > 1) {
+                                val next = (labelCount - 1).coerceAtLeast(1)
+                                labelCount = next
+                                customText = next.toString()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "−",
+                            color = if (labelCount > 1) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Middle: Clean numeric input display
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Surface)
+                            .border(1.dp, ScanResult.ClassA.color.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        BasicTextField(
+                            value = customText,
+                            onValueChange = { text ->
+                                val digits = text.filter { it.isDigit() }.take(3)
+                                customText = digits
+                                digits.toIntOrNull()?.let { n ->
+                                    labelCount = n.coerceIn(1, batch.targetBagCount)
+                                }
+                            },
+                            textStyle = LocalTextStyle.current.copy(
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                textAlign = TextAlign.Center
+                            ),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.widthIn(min = 36.dp, max = 64.dp),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (customText.isEmpty()) {
+                                        Text(
+                                            "0",
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextMuted.copy(alpha = 0.35f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "labels (from #$startBag)",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Increment button (+)
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (labelCount < batch.targetBagCount) Surface else SurfaceAlt)
+                            .border(1.dp, if (labelCount < batch.targetBagCount) Border else Color.Transparent, CircleShape)
+                            .clickable(enabled = labelCount < batch.targetBagCount) {
+                                val next = (labelCount + 1).coerceAtMost(batch.targetBagCount)
+                                labelCount = next
+                                customText = next.toString()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "+",
+                            color = if (labelCount < batch.targetBagCount) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
 
             Button(
                 modifier = Modifier
@@ -3331,16 +3595,24 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text("🖨️", fontSize = 16.sp)
+                        val btnTitle = if (isSingleMode) {
+                            val singleShelf = repository.shelfCodeForBag(selectedSingleBag)
+                            "Print Bag #$selectedSingleBag Label ($singleShelf)"
+                        } else {
+                            val endBag = (startBag + labels.size - 1).coerceAtLeast(startBag)
+                            "Print ${labels.size} Labels (Bags #$startBag to #$endBag)"
+                        }
                         Text(
-                            "Print ${labels.size} QR Labels",
+                            btnTitle,
                             color = Color(0xFF155E2B),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 14.sp
                         )
                     }
                 }
             }
         }
+
         DataCard {
             SectionLabel("Label Sheet Preview")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -3349,6 +3621,16 @@ private fun LabelsScreen(repository: PleuroTechRepository, onPrint: (List<BagLab
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RecordsSubTabIcon(tab: RecordsSubTab, color: Color) {
+    val iconModifier = Modifier.size(15.dp)
+    when (tab) {
+        RecordsSubTab.History -> DocumentVectorIcon(color = color, modifier = iconModifier)
+        RecordsSubTab.Analytics -> ChartVectorIcon(color = color, modifier = iconModifier)
+        RecordsSubTab.Labels -> TagVectorIcon(color = color, modifier = iconModifier)
     }
 }
 
@@ -3364,39 +3646,46 @@ private fun RecordsScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Surface,
-            tonalElevation = 2.dp
+            color = AppBackground
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 18.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Surface)
+                    .border(1.dp, Border, RoundedCornerShape(14.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 RecordsSubTab.values().forEach { tab ->
                     val isSelected = subTab == tab
+                    val tabBg by animateColorAsState(
+                        targetValue = if (isSelected) ScanResult.ClassA.softColor else Color.Transparent,
+                        label = "recordsTabBg"
+                    )
+                    val tabTextColor by animateColorAsState(
+                        targetValue = if (isSelected) ScanResult.ClassA.color else TextMuted,
+                        label = "recordsTabTextColor"
+                    )
+
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) ScanResult.ClassA.color.copy(alpha = 0.16f) else SurfaceAlt)
-                            .border(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) ScanResult.ClassA.color else Border,
-                                shape = RoundedCornerShape(10.dp)
-                            )
+                            .background(tabBg)
                             .clickable { onSubTabChanged(tab) }
-                            .padding(vertical = 10.dp),
+                            .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(tab.icon, fontSize = 14.sp)
+                            RecordsSubTabIcon(tab = tab, color = tabTextColor)
                             Text(
                                 text = tab.title,
-                                color = if (isSelected) ScanResult.ClassA.color else TextPrimary,
+                                color = tabTextColor,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 12.sp,
                                 maxLines = 1
@@ -3407,19 +3696,29 @@ private fun RecordsScreen(
             }
         }
 
-        when (subTab) {
-            RecordsSubTab.History -> HistoryScreen(
-                repository = repository,
-                onExport = onExport,
-                onClear = onClear
-            )
-            RecordsSubTab.Analytics -> AnalyticsScreen(
-                repository = repository
-            )
-            RecordsSubTab.Labels -> LabelsScreen(
-                repository = repository,
-                onPrint = onPrintLabels
-            )
+        AnimatedContent(
+            targetState = subTab,
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(200, delayMillis = 30)) +
+                    slideInHorizontally(animationSpec = tween(240)) { if (targetState.ordinal > initialState.ordinal) 60 else -60 })
+                    .togetherWith(fadeOut(animationSpec = tween(120)))
+            },
+            label = "RecordsSubTabTransition"
+        ) { targetSubTab ->
+            when (targetSubTab) {
+                RecordsSubTab.History -> HistoryScreen(
+                    repository = repository,
+                    onExport = onExport,
+                    onClear = onClear
+                )
+                RecordsSubTab.Analytics -> AnalyticsScreen(
+                    repository = repository
+                )
+                RecordsSubTab.Labels -> LabelsScreen(
+                    repository = repository,
+                    onPrint = onPrintLabels
+                )
+            }
         }
     }
 }
@@ -3912,15 +4211,187 @@ private fun ContaminationAlertPanel(alerts: List<ContaminationAlert>) {
 @Composable
 private fun ShelfMapPanel(
     shelves: List<ShelfSummary>,
+    isOwner: Boolean = false,
+    onAddRack: (() -> Unit)? = null,
     onSelectShelf: (ShelfSummary) -> Unit = {}
 ) {
-    Column {
-        SectionLabel("Shelf Map")
-        Spacer(Modifier.height(8.dp))
+    val racks = remember(shelves) {
+        shelves.mapNotNull { it.shelfCode.firstOrNull()?.uppercaseChar() }.distinct().sorted()
+    }
+    var selectedRack by remember(racks) { mutableStateOf<Char?>(null) }
+
+    val filteredShelves = remember(shelves, selectedRack) {
+        if (selectedRack == null) shelves
+        else shelves.filter { it.shelfCode.startsWith(selectedRack.toString(), ignoreCase = true) }
+    }
+
+    val selectedRackRejects = remember(filteredShelves) {
+        filteredShelves.sumOf { it.reject }
+    }
+    val selectedRackScans = remember(filteredShelves) {
+        filteredShelves.sumOf { it.total }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SectionLabel("Shelf Map")
+            Text(
+                text = "${racks.size} Racks · ${shelves.size} Shelves",
+                color = TextMuted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        // Horizontal Rack Filter Pills
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. "All Racks" Pill (FIRST)
+            val isAllSelected = selectedRack == null
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isAllSelected) ScanResult.ClassA.color else SurfaceAlt)
+                    .border(
+                        1.dp,
+                        if (isAllSelected) ScanResult.ClassA.color else Border,
+                        RoundedCornerShape(20.dp)
+                    )
+                    .clickable { selectedRack = null }
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    text = "All Racks",
+                    color = if (isAllSelected) Color.White else TextPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+
+            // 2. Individual Rack Pills (Rack A, Rack B, Rack C...)
+            racks.forEach { rackChar ->
+                val isSelected = selectedRack == rackChar
+                val rackShelves = shelves.filter { it.shelfCode.startsWith(rackChar.toString(), ignoreCase = true) }
+                val hasRejects = rackShelves.sumOf { it.reject } > 0
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            when {
+                                isSelected -> ScanResult.ClassA.color
+                                hasRejects -> ScanResult.Reject.color.copy(alpha = 0.12f)
+                                else -> SurfaceAlt
+                            }
+                        )
+                        .border(
+                            1.dp,
+                            when {
+                                isSelected -> ScanResult.ClassA.color
+                                hasRejects -> ScanResult.Reject.color.copy(alpha = 0.4f)
+                                else -> Border
+                            },
+                            RoundedCornerShape(20.dp)
+                        )
+                        .clickable { selectedRack = rackChar }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Rack $rackChar",
+                            color = when {
+                                isSelected -> Color.White
+                                hasRejects -> ScanResult.Reject.color
+                                else -> TextPrimary
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                        if (hasRejects) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Color.White else ScanResult.Reject.color)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Farm Owner "+ Add Rack" Pill
+            if (isOwner && onAddRack != null && racks.size < 26) {
+                val nextRackLetter = ('A'.code + racks.size).toChar()
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(ScanResult.ClassA.color.copy(alpha = 0.10f))
+                        .border(1.dp, ScanResult.ClassA.color.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+                        .clickable { onAddRack() }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("➕", fontSize = 11.sp)
+                        Text(
+                            text = "Add Rack $nextRackLetter",
+                            color = ScanResult.ClassA.color,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
         DataCard {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                shelves.forEach { shelf ->
-                    ShelfTile(shelf = shelf, onClick = { onSelectShelf(shelf) })
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Rack Summary Sub-header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (selectedRack != null) "Rack $selectedRack Shelves (Top to Bottom)" else "All Farm Shelves",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "$selectedRackScans scans · $selectedRackRejects rejects",
+                        color = if (selectedRackRejects > 0) ScanResult.Reject.color else TextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                // Grid of Shelves
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    filteredShelves.forEach { shelf ->
+                        ShelfTile(
+                            shelf = shelf,
+                            onClick = { onSelectShelf(shelf) }
+                        )
+                    }
                 }
             }
         }
@@ -3928,21 +4399,158 @@ private fun ShelfMapPanel(
 }
 
 @Composable
-private fun ShelfTile(shelf: ShelfSummary, onClick: () -> Unit = {}) {
+private fun ShelfTile(
+    shelf: ShelfSummary,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
+) {
     val color = shelfStatusColor(shelf)
     Column(
-        modifier = Modifier
-            .width(72.dp)
-            .clip(RoundedCornerShape(8.dp))
+        modifier = modifier
+            .widthIn(min = 82.dp, max = 110.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(color.copy(alpha = 0.13f))
-            .border(1.dp, color.copy(alpha = 0.32f), RoundedCornerShape(8.dp))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(9.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(vertical = 10.dp, horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(shelf.shelfCode, color = color, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-        Text("${shelf.total} scans", color = TextMuted, fontSize = 10.sp, maxLines = 1)
-        Text("${shelf.reject} R", color = ScanResult.Reject.color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Text(
+            text = shelf.shelfCode,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            fontFamily = FontFamily.Monospace
+        )
+        Text(
+            text = "${shelf.total} scans",
+            color = TextMuted,
+            fontSize = 10.sp,
+            maxLines = 1
+        )
+        if (shelf.reject > 0) {
+            Text(
+                text = "${shelf.reject} Reject${if (shelf.reject > 1) "s" else ""}",
+                color = ScanResult.Reject.color,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        } else {
+            Text(
+                text = "0 Rejects",
+                color = ScanResult.ClassA.color,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetectionBreakdownView(
+    breakdownText: String,
+    modifier: Modifier = Modifier
+) {
+    if (breakdownText.isBlank()) return
+
+    val rawItems = breakdownText.split("·", ",").map { it.trim() }.filter { it.isNotEmpty() }
+    if (rawItems.isEmpty()) return
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceAlt.copy(alpha = 0.65f))
+            .border(1.dp, Border, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "🍄 AI DETECTION BREAKDOWN",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMuted,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "${rawItems.size} class${if (rawItems.size > 1) "es" else ""} detected",
+                fontSize = 10.sp,
+                color = TextMuted
+            )
+        }
+
+        // Exact text breakdown line
+        Text(
+            text = "Breakdown: " + rawItems.joinToString(" · ") { it.replace("_", " ").trim() },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary
+        )
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            rawItems.forEach { rawItem ->
+                val item = rawItem.replace("_", " ").trim()
+                val lower = item.lowercase()
+                val (chipColor, icon, actionHint) = when {
+                    lower.contains("ready") && (lower.contains("class a") || lower.contains("class_a")) ->
+                        Triple(ScanResult.ClassA.color, "🌾", "Prime • Harvest")
+                    lower.contains("potential") && (lower.contains("class a") || lower.contains("class_a")) ->
+                        Triple(Color(0xFF00B4D8), "⏳", "Developing • Monitor")
+                    lower.contains("ready") && (lower.contains("class b") || lower.contains("class_b")) ->
+                        Triple(ScanResult.ClassB.color, "🌾", "Standard • Harvest")
+                    lower.contains("potential") && (lower.contains("class b") || lower.contains("class_b")) ->
+                        Triple(Color(0xFFF59E0B), "⏳", "Developing • Monitor")
+                    lower.contains("bacterial") || lower.contains("blotch") ->
+                        Triple(ScanResult.Reject.color, "⚠️", "Bacterial • Isolate")
+                    lower.contains("mold") || lower.contains("black_mold") ->
+                        Triple(ScanResult.Reject.color, "🚨", "Black Mold • Remove")
+                    lower.contains("reject") ->
+                        Triple(ScanResult.Reject.color, "🗑️", "Deformed • Reject")
+                    else ->
+                        Triple(ScanResult.ClassA.color, "🍄", "Detected")
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(chipColor.copy(alpha = 0.14f))
+                        .border(1.dp, chipColor.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(icon, fontSize = 13.sp)
+                        Column {
+                            Text(
+                                text = item,
+                                color = chipColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = actionHint,
+                                color = TextMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3954,21 +4562,24 @@ private fun ShelfDetailModal(
 ) {
     var expandedBagScan by remember { mutableStateOf<ScanRecord?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .clip(RoundedCornerShape(16.dp)),
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.88f)
+                .clip(RoundedCornerShape(18.dp)),
             color = Surface,
             tonalElevation = 6.dp
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 if (expandedBagScan != null) {
                     val scan = expandedBagScan!!
@@ -3982,6 +4593,11 @@ private fun ShelfDetailModal(
                         } else {
                             null
                         }
+                    }
+
+                    val isMixedAB = remember(scan.classBreakdown) {
+                        val b = scan.classBreakdown.lowercase()
+                        (b.contains("class a") || b.contains("class_a")) && (b.contains("class b") || b.contains("class_b"))
                     }
 
                     // Header
@@ -4006,7 +4622,7 @@ private fun ShelfDetailModal(
                         }
                         ResultBadge(
                             result = scan.finalResult,
-                            text = if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
+                            text = if (isMixedAB && scan.finalResult != ScanResult.Reject) "Class A / B" else if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
                         )
                     }
 
@@ -4028,18 +4644,10 @@ private fun ShelfDetailModal(
                                 .fillMaxWidth()
                                 .height(120.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(SurfaceAlt)
-                                .border(1.dp, Border, RoundedCornerShape(12.dp)),
+                                .background(SurfaceAlt),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("🍄", fontSize = 32.sp)
-                                Text("No Photo Attached", color = TextMuted, fontSize = 12.sp)
-                                Text("Captured prior to live photo persistence", color = TextMuted, fontSize = 10.sp)
-                            }
+                            Text("No Photo Available", color = TextMuted, fontSize = 12.sp)
                         }
                     }
 
@@ -4063,27 +4671,127 @@ private fun ShelfDetailModal(
                         MiniMetric(
                             modifier = Modifier.weight(1f),
                             label = "GRADE",
-                            value = scan.finalResult.shortName,
-                            accent = scan.finalResult.color
+                            value = if (isMixedAB && scan.finalResult != ScanResult.Reject) "A / B" else scan.finalResult.shortName,
+                            accent = if (isMixedAB && scan.finalResult != ScanResult.Reject) Color(0xFF00B4D8) else scan.finalResult.color
                         )
                     }
 
-                    if (scan.classBreakdown.isNotEmpty()) {
-                        Text(
-                            text = "Breakdown: ${scan.classBreakdown}",
-                            color = TextPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    // Detection Breakdown Chip View
+                    val breakdownString = scan.classBreakdown.ifEmpty { scan.aiExplanation }
+                    if (breakdownString.isNotEmpty()) {
+                        DetectionBreakdownView(breakdownText = breakdownString)
                     }
 
-                    if (scan.aiExplanation.isNotEmpty()) {
-                        Text(
-                            text = scan.aiExplanation,
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
+                    // Farmer Diagnosis & Action Card
+                    val gradingInfo = remember(scan.classBreakdown, scan.finalResult, scan.verified) {
+                        val label = when {
+                            scan.verified && scan.verifiedResult == ScanResult.Reject -> "Reject"
+                            scan.verified && scan.verifiedResult == ScanResult.ClassA -> "Ready_Class_A"
+                            scan.verified && scan.verifiedResult == ScanResult.ClassB -> "Ready_Class_B"
+                            scan.classBreakdown.isNotEmpty() -> scan.classBreakdown
+                            else -> scan.finalResult.apiName
+                        }
+                        MushroomDiagnosisGuide.getGrading(label)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(SurfaceAlt)
+                            .border(1.dp, Border, RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Class & Action Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(
+                                        text = "CLASS / CATEGORY",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMuted,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = gradingInfo.className.replace("_", " "),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(gradingInfo.actionStatus.color.copy(alpha = 0.18f))
+                                        .border(1.dp, gradingInfo.actionStatus.color, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = "ACTION: ${gradingInfo.actionStatus.label}",
+                                        color = gradingInfo.actionStatus.color,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // Diagnosis
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "DIAGNOSIS",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = gradingInfo.diagnosis,
+                                    fontSize = 12.sp,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    lineHeight = 17.sp
+                                )
+                            }
+
+                            // Description
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "DESCRIPTION",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = gradingInfo.description,
+                                    fontSize = 12.sp,
+                                    color = TextMuted,
+                                    lineHeight = 17.sp
+                                )
+                            }
+
+                            // Recommendation
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "RECOMMENDATION",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ScanResult.ClassA.color,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = gradingInfo.recommendation,
+                                    fontSize = 12.sp,
+                                    color = TextPrimary,
+                                    lineHeight = 17.sp
+                                )
+                            }
+                        }
                     }
 
                     Text(
@@ -4216,22 +4924,30 @@ private fun InspectionDetailModal(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .clip(RoundedCornerShape(16.dp)),
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.88f)
+                .clip(RoundedCornerShape(18.dp)),
             color = Surface,
             tonalElevation = 6.dp
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
+                    .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                val isMixedAB = remember(scan.classBreakdown) {
+                    val b = scan.classBreakdown.lowercase()
+                    (b.contains("class a") || b.contains("class_a")) && (b.contains("class b") || b.contains("class_b"))
+                }
+
                 // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -4254,7 +4970,7 @@ private fun InspectionDetailModal(
                     }
                     ResultBadge(
                         result = scan.finalResult,
-                        text = if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
+                        text = if (isMixedAB && scan.finalResult != ScanResult.Reject) "Class A / B" else if (scan.verified) "V-${scan.finalResult.displayName}" else scan.finalResult.displayName
                     )
                 }
 
@@ -4310,27 +5026,127 @@ private fun InspectionDetailModal(
                     MiniMetric(
                         modifier = Modifier.weight(1f),
                         label = "GRADE",
-                        value = scan.finalResult.shortName,
-                        accent = scan.finalResult.color
+                        value = if (isMixedAB && scan.finalResult != ScanResult.Reject) "A / B" else scan.finalResult.shortName,
+                        accent = if (isMixedAB && scan.finalResult != ScanResult.Reject) Color(0xFF00B4D8) else scan.finalResult.color
                     )
                 }
 
-                if (scan.classBreakdown.isNotEmpty()) {
-                    Text(
-                        text = "Breakdown: ${scan.classBreakdown}",
-                        color = TextPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                // Detection Breakdown Chip View
+                val breakdownString = scan.classBreakdown.ifEmpty { scan.aiExplanation }
+                if (breakdownString.isNotEmpty()) {
+                    DetectionBreakdownView(breakdownText = breakdownString)
                 }
 
-                if (scan.aiExplanation.isNotEmpty()) {
-                    Text(
-                        text = scan.aiExplanation,
-                        color = TextMuted,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp
-                    )
+                // Farmer Diagnosis & Action Card
+                val gradingInfo = remember(scan.classBreakdown, scan.finalResult, scan.verified) {
+                    val label = when {
+                        scan.verified && scan.verifiedResult == ScanResult.Reject -> "Reject"
+                        scan.verified && scan.verifiedResult == ScanResult.ClassA -> "Ready_Class_A"
+                        scan.verified && scan.verifiedResult == ScanResult.ClassB -> "Ready_Class_B"
+                        scan.classBreakdown.isNotEmpty() -> scan.classBreakdown
+                        else -> scan.finalResult.apiName
+                    }
+                    MushroomDiagnosisGuide.getGrading(label)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceAlt)
+                        .border(1.dp, Border, RoundedCornerShape(14.dp))
+                        .padding(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Class & Action Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = "CLASS / CATEGORY",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = gradingInfo.className.replace("_", " "),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimary
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(gradingInfo.actionStatus.color.copy(alpha = 0.18f))
+                                    .border(1.dp, gradingInfo.actionStatus.color, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "ACTION: ${gradingInfo.actionStatus.label}",
+                                    color = gradingInfo.actionStatus.color,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Diagnosis
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "DIAGNOSIS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = gradingInfo.diagnosis,
+                                fontSize = 12.sp,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 17.sp
+                            )
+                        }
+
+                        // Description
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "DESCRIPTION",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = gradingInfo.description,
+                                fontSize = 12.sp,
+                                color = TextMuted,
+                                lineHeight = 17.sp
+                            )
+                        }
+
+                        // Recommendation
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "RECOMMENDATION",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ScanResult.ClassA.color,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = gradingInfo.recommendation,
+                                fontSize = 12.sp,
+                                color = TextPrimary,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
                 }
 
                 Text(
@@ -4867,20 +5683,42 @@ private fun GradeSummary(counts: ScanCounts) {
 private fun GradeCard(modifier: Modifier, result: ScanResult, count: Int) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(result.softColor)
-            .border(1.dp, result.color.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-            .padding(12.dp)
+            .border(1.dp, result.color.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(result.displayName, color = result.color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(result.color)
+            )
+            Text(
+                text = result.displayName,
+                color = result.color,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
         Text(
             text = count.toString(),
-            color = result.color,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace
+            color = TextPrimary,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold
         )
-        Text("bags - ${result.description}", color = TextMuted, fontSize = 11.sp, maxLines = 1)
+        Text(
+            text = result.description,
+            color = TextMuted,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -4888,37 +5726,44 @@ private fun GradeCard(modifier: Modifier, result: ScanResult, count: Int) {
 private fun ActiveAlert(latest: ScanRecord?) {
     val danger = latest?.result == ScanResult.Reject
     val color = if (danger) ScanResult.Reject.color else ScanResult.ClassA.color
-    val title = if (danger) "Reject detected - Bag #${latest.bagNumber}" else "No active alerts"
-    val body = if (danger) "Flag this bag for removal from the batch." else "All scanned bags are within acceptable quality range."
-    Column {
+    val title = if (danger) "Reject detected · Bag #${latest.bagNumber}" else "No active alerts"
+    val body = if (danger) "Flag this bag for removal from the growing room." else "All scanned bags are within optimal quality standards."
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("Active Alert")
-        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(color.copy(alpha = 0.08f))
-                .border(1.dp, color.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .border(1.dp, color.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(color.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (danger) "!" else "OK", color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(title, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text(body, color = TextMuted, fontSize = 12.sp)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = body,
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
             }
         }
     }
 }
+
 
 @Composable
 private fun LatestScanDetail(scan: ScanRecord, onVerify: (ScanResult) -> Unit) {
@@ -5521,15 +6366,22 @@ private fun DistributionDonut(counts: ScanCounts) {
 }
 
 @Composable
-private fun DataCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+private fun DataCard(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
+    backgroundColor: Color = Surface,
+    borderColor: Color = Border,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(18.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Surface)
-            .border(1.dp, Border, RoundedCornerShape(8.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .clip(shape)
+            .background(backgroundColor)
+            .border(1.dp, borderColor, shape)
+            .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         content()
     }
@@ -5540,7 +6392,7 @@ private fun SectionLabel(text: String) {
     Text(
         text = text.uppercase(),
         color = TextMuted,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 1.2.sp
     )
@@ -5548,9 +6400,20 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun PageTitle(title: String, subtitle: String) {
-    Column {
-        Text(title, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        Text(subtitle, color = TextMuted, fontSize = 12.sp)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = title,
+            color = TextPrimary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.4).sp
+        )
+        Text(
+            text = subtitle,
+            color = TextMuted,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
     }
 }
 
@@ -5563,19 +6426,24 @@ private fun StatusPill(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.12f))
-            .border(1.dp, color.copy(alpha = 0.2f), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .background(color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = 0.22f), RoundedCornerShape(50))
+            .padding(horizontal = 11.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(7.dp)
+                .size(6.dp)
                 .clip(CircleShape)
                 .background(color)
         )
-        Spacer(Modifier.width(6.dp))
-        Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = label,
+            color = color,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 

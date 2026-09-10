@@ -118,8 +118,29 @@ class PleuroAssistant {
             normalized.contains("class a") || normalized.contains("premium") -> {
                 "Premium rate is ${"%.1f".format(counts.premiumRate)}%. Best recent day is ${insights.bestDay?.label ?: "not available"} with ${insights.bestDay?.premiumPercent ?: 0}% Class A output."
             }
+            normalized.contains("blotch") || normalized.contains("bacterial") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Bacterial_Blotch")
+            }
+            normalized.contains("mold") || normalized.contains("black mold") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Black_Mold")
+            }
+            normalized.contains("potential a") || normalized.contains("potential_class_a") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Potential_Class_A")
+            }
+            normalized.contains("potential b") || normalized.contains("potential_class_b") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Potential_Class_B")
+            }
+            normalized.contains("ready a") || normalized.contains("ready_class_a") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Ready_Class_A")
+            }
+            normalized.contains("ready b") || normalized.contains("ready_class_b") -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Ready_Class_B")
+            }
+            normalized.contains("reject") && (normalized.contains("grade") || normalized.contains("guide") || normalized.contains("class")) -> {
+                com.example.pleurotech.ml.MushroomDiagnosisGuide.formatReport("Reject")
+            }
             else -> {
-                "I can help summarize scan performance, explain the latest result, check reject risk, or suggest quality actions. Current status: ${insights.riskLevel}, quality score ${insights.qualityScore.toInt()}."
+                "I can help classify mushroom samples, summarize scan performance, explain the latest scan, or provide action guidance for: Bacterial_Blotch, Black_Mold, Potential_Class_A, Potential_Class_B, Ready_Class_A, Ready_Class_B, and Reject."
             }
         }
     }

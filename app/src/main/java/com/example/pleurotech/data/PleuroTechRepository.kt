@@ -255,6 +255,39 @@ class PleuroTechRepository(
         }
     }
 
+    fun addRackToActiveBatch(): MushroomBatch {
+        val current = activeBatch
+        val newRackCount = (current.rackCount + 1).coerceAtMost(26)
+        val updated = current.copy(
+            rackCount = newRackCount,
+            targetBagCount = current.targetBagCount + (current.shelvesPerRack * 5)
+        )
+        if (batches.isNotEmpty()) {
+            batches[0] = updated
+        } else {
+            batches.add(updated)
+        }
+        dbHelper?.insertOrUpdateBatch(updated)
+        return updated
+    }
+
+    fun removeLastRackFromActiveBatch(): MushroomBatch? {
+        val current = activeBatch
+        if (current.rackCount <= 1) return null
+        val newRackCount = current.rackCount - 1
+        val updated = current.copy(
+            rackCount = newRackCount,
+            targetBagCount = (current.targetBagCount - (current.shelvesPerRack * 5)).coerceAtLeast(1)
+        )
+        if (batches.isNotEmpty()) {
+            batches[0] = updated
+        } else {
+            batches.add(updated)
+        }
+        dbHelper?.insertOrUpdateBatch(updated)
+        return updated
+    }
+
     fun refreshFromDb() {
         dbHelper?.let { db ->
             val fresh = db.getAllScans()
@@ -308,9 +341,13 @@ class PleuroTechRepository(
         return (latestAlert + shelfAlerts).distinctBy { it.title + it.shelfCode }.take(4)
     }
 
-    fun bagLabels(limit: Int = activeBatch.targetBagCount): List<BagLabel> {
+    fun bagLabels(startBag: Int = 1, limit: Int = activeBatch.targetBagCount): List<BagLabel> {
         val batch = activeBatch
-        return (1..batch.targetBagCount.coerceAtLeast(1)).take(limit).map { bagNumber ->
+        val start = startBag.coerceIn(1, batch.targetBagCount.coerceAtLeast(1))
+        val maxLimit = (batch.targetBagCount.coerceAtLeast(1) - start + 1).coerceAtLeast(1)
+        val actualLimit = limit.coerceIn(1, maxLimit)
+        val end = start + actualLimit - 1
+        return (start..end).map { bagNumber ->
             BagLabel(
                 batchId = batch.id,
                 bagNumber = bagNumber,
@@ -353,9 +390,13 @@ class PleuroTechRepository(
     }
 
     fun shelfCodeForBag(bagNumber: Int): String {
-        val rack = ((bagNumber - 1).floorDiv(5)).coerceIn(0, activeBatch.rackCount - 1)
-        val shelf = ((bagNumber - 1) % activeBatch.shelvesPerRack) + 1
-        return "${('A'.code + rack).toChar()}$shelf"
+        val totalShelves = (activeBatch.rackCount * activeBatch.shelvesPerRack).coerceAtLeast(1)
+        val bagsPerShelf = (activeBatch.targetBagCount / totalShelves).coerceAtLeast(1)
+        val bagsPerRack = (activeBatch.shelvesPerRack * bagsPerShelf).coerceAtLeast(1)
+        val rackIndex = ((bagNumber - 1) / bagsPerRack).coerceIn(0, activeBatch.rackCount - 1)
+        val shelfIndex = ((((bagNumber - 1) % bagsPerRack) / bagsPerShelf) % activeBatch.shelvesPerRack) + 1
+        val rackChar = ('A'.code + rackIndex).toChar()
+        return "$rackChar$shelfIndex"
     }
 
     private fun explanationFor(result: ScanResult, confidence: Float, shelfCode: String): String {
@@ -397,6 +438,16 @@ class PleuroTechRepository(
             initialScans = emptyList(),
             initialBatches = listOf(defaultBatch())
         )
+
+        fun isOnboardingCompleted(context: Context): Boolean {
+            val prefs = context.getSharedPreferences("pleurotech_prefs", Context.MODE_PRIVATE)
+            return prefs.getBoolean("has_completed_onboarding", false)
+        }
+
+        fun setOnboardingCompleted(context: Context, completed: Boolean) {
+            val prefs = context.getSharedPreferences("pleurotech_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("has_completed_onboarding", completed).apply()
+        }
 
         private fun defaultBatch(): MushroomBatch = MushroomBatch(
             id = "BATCH-001",
