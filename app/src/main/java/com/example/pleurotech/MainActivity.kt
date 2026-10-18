@@ -13,13 +13,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.pleurotech.data.PleuroTechRepository
+import com.example.pleurotech.data.sync.SyncWorker
 import com.example.pleurotech.ui.screens.PleuroTechApp
 import com.example.pleurotech.ui.theme.PleurotechTheme
+import com.example.pleurotech.util.ClimateAlertManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ClimateAlertManager.createNotificationChannel(this)
+        SyncWorker.schedulePeriodicSync(this)
+
         setContent {
             val context = LocalContext.current
             val repository = remember { PleuroTechRepository.create(context) }

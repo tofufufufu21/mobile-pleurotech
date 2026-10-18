@@ -111,6 +111,22 @@ data class TrendInsights(
     }
 }
 
+data class DailyYieldProjection(
+    val dayLabel: String,
+    val expectedBags: Int,
+    val classA: Int,
+    val classB: Int,
+    val estimatedKg: Float,
+    val estimatedRevenuePhp: Float
+)
+
+data class HarvestActionTip(
+    val category: String,
+    val title: String,
+    val description: String,
+    val iconType: String
+)
+
 data class HarvestForecast(
     val expectedScansTomorrow: Int,
     val expectedClassA: Int,
@@ -119,7 +135,19 @@ data class HarvestForecast(
     val projectedPremiumRate: Float,
     val projectedRejectRate: Float,
     val confidence: Float,
-    val status: String
+    val status: String,
+    val estimatedWeightKg: Float = 0f,
+    val classAWeightKg: Float = 0f,
+    val classBWeightKg: Float = 0f,
+    val projectedRevenuePhp: Float = 0f,
+    val potentialLossPhp: Float = 0f,
+    val biologicalEfficiencyPercent: Float = 0f,
+    val optimalHarvestWindow: String = "Early Morning (6:00 AM – 9:00 AM)",
+    val flushCycleStage: String = "Peak 1st Flush (High Density)",
+    val climateYieldFactor: Float = 1.0f,
+    val climateYieldNote: String = "Stable fruiting climate detected",
+    val projections: List<DailyYieldProjection> = emptyList(),
+    val actionTips: List<HarvestActionTip> = emptyList()
 )
 
 data class PreHarvestReflection(
@@ -136,7 +164,8 @@ data class MushroomBatch(
     val startedDate: LocalDate,
     val targetBagCount: Int,
     val rackCount: Int,
-    val shelvesPerRack: Int
+    val shelvesPerRack: Int,
+    val isArchived: Boolean = false
 )
 
 data class BagLabel(
