@@ -10,6 +10,12 @@ import androidx.core.content.FileProvider
 import com.example.pleurotech.data.auth.SupabaseAuthManager
 import com.example.pleurotech.data.local.PleuroTechDbHelper
 import com.example.pleurotech.data.sync.SupabaseSyncManager
+import com.example.pleurotech.data.sync.SyncResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -24,11 +30,53 @@ class PleuroTechRepository(
 ) {
     private var nextScanId = (initialScans.maxOfOrNull { it.id } ?: 0) + 1
 
+    var isSyncing by mutableStateOf(false)
+    val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    init {
+        syncManager?.registerAutoSyncOnConnect {
+            repoScope.launch {
+                delay(1200)
+                if (syncManager.isOnline() && !isSyncing) {
+                    syncWithCloud()
+                }
+            }
+        }
+    }
+
     val batches = mutableStateListOf<MushroomBatch>().apply {
         addAll(initialBatches)
     }
 
     var activeBatchId by mutableStateOf(initialBatches.firstOrNull()?.id ?: "BATCH-001")
+
+    fun refreshFromDb() {
+        val updatedScans = dbHelper?.getAllScans() ?: emptyList()
+        scans.clear()
+        scans.addAll(updatedScans.sortedByDescending { it.id })
+        nextScanId = (scans.maxOfOrNull { it.id } ?: 0) + 1
+
+        val updatedBatches = dbHelper?.getAllBatches() ?: emptyList()
+        if (updatedBatches.isNotEmpty()) {
+            batches.clear()
+            batches.addAll(updatedBatches)
+            if (!batches.any { it.id == activeBatchId }) {
+                activeBatchId = batches.firstOrNull { !it.isArchived }?.id ?: batches.first().id
+            }
+        }
+    }
+
+    suspend fun syncWithCloud(): SyncResult {
+        if (syncManager == null) return SyncResult.NotConfigured
+        isSyncing = true
+        return try {
+            val result = syncManager.syncNow()
+            refreshFromDb()
+            result
+        } finally {
+            isSyncing = false
+        }
+    }
 
     val activeBatch: MushroomBatch
         get() = batches.firstOrNull { it.id == activeBatchId && !it.isArchived }
@@ -397,6 +445,11 @@ class PleuroTechRepository(
         )
         scans.add(0, record)
         dbHelper?.insertScan(record, PleuroTechDbHelper.SYNC_PENDING)
+        repoScope.launch {
+            if (syncManager?.isOnline() == true && !isSyncing) {
+                syncWithCloud()
+            }
+        }
     }
 
     fun scansForShelf(shelfCode: String): List<ScanRecord> {
@@ -432,6 +485,11 @@ class PleuroTechRepository(
                 verifiedResult = result
             )
             dbHelper?.updateScanResult(scanId, result)
+            repoScope.launch {
+                if (syncManager?.isOnline() == true && !isSyncing) {
+                    syncWithCloud()
+                }
+            }
         }
     }
 
@@ -468,15 +526,6 @@ class PleuroTechRepository(
         }
         dbHelper?.insertOrUpdateBatch(updated)
         return updated
-    }
-
-    fun refreshFromDb() {
-        dbHelper?.let { db ->
-            val fresh = db.getAllScans()
-            scans.clear()
-            scans.addAll(fresh)
-            nextScanId = (fresh.maxOfOrNull { it.id } ?: 0) + 1
-        }
     }
 
     fun shelfMap(): List<ShelfSummary> {

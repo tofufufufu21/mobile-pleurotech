@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -339,6 +340,10 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                     }
                 }
 
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    repository.syncWithCloud()
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     Scaffold(
                         containerColor = AppBackground,
@@ -596,9 +601,10 @@ private fun AppHeader(
     repository: PleuroTechRepository
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val sync = repository.syncManager
     val pending = sync?.getPendingCount() ?: 0
-    val online = sync?.isOnline() ?: false
+    val online = sync?.isNetworkAvailable ?: false
     val user = repository.authManager?.getCurrentUser()
     val isOwner = user?.isOwner ?: true
 
@@ -671,23 +677,37 @@ private fun AppHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Minimalist Sync Status Pill / Badge
-            val syncColor = if (pending > 0) ScanResult.ClassB.color else ScanResult.ClassA.color
-            val syncLabel = if (pending > 0) "$pending Pending" else if (online) "Online" else "Offline"
+            val isSyncing = repository.isSyncing
+            val syncColor = if (isSyncing) EmeraldPrimary else if (pending > 0) ScanResult.ClassB.color else ScanResult.ClassA.color
+            val syncLabel = if (isSyncing) "Syncing..." else if (pending > 0) "$pending Pending" else if (online) "Online" else "Offline"
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(syncColor.copy(alpha = 0.12f))
                     .border(1.dp, syncColor.copy(alpha = 0.25f), RoundedCornerShape(50))
+                    .clickable(enabled = !isSyncing) {
+                        scope.launch {
+                            repository.syncWithCloud()
+                        }
+                    }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(syncColor)
-                )
+                if (isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(8.dp),
+                        strokeWidth = 1.5.dp,
+                        color = syncColor
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(syncColor)
+                    )
+                }
                 Text(
                     text = syncLabel,
                     color = syncColor,
@@ -4209,7 +4229,40 @@ private fun HistoryScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        PageTitle("Scan History", "${repository.scans.size} total scans recorded")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PageTitle("Scan History", "${repository.scans.size} total scans recorded")
+            val scope = rememberCoroutineScope()
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        repository.syncWithCloud()
+                    }
+                },
+                enabled = !repository.isSyncing,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (repository.isSyncing) Border else EmeraldPrimary.copy(alpha = 0.5f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = EmeraldPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                if (repository.isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = EmeraldPrimary
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Syncing...", fontSize = 12.sp)
+                } else {
+                    Text("🔄 Sync Cloud", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
         GradeSummary(counts = repository.counts())
         ReportPreviewPanel(report = repository.report())
         DataCard {
@@ -5157,9 +5210,9 @@ fun DetectionBreakdownView(
     breakdownText: String,
     modifier: Modifier = Modifier
 ) {
-    if (breakdownText.isBlank()) return
+    if (breakdownText.isBlank() || breakdownText.trim().equals("null", ignoreCase = true)) return
 
-    val rawItems = breakdownText.split("·", ",").map { it.trim() }.filter { it.isNotEmpty() }
+    val rawItems = breakdownText.split("·", ",").map { it.trim() }.filter { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
     if (rawItems.isEmpty()) return
 
     Column(
