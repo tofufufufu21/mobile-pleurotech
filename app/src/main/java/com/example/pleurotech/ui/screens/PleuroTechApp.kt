@@ -2374,8 +2374,24 @@ fun decodeAndOrientBitmap(context: Context, uri: Uri): Bitmap? {
             android.media.ExifInterface.ORIENTATION_NORMAL
         }
 
+        // Check image dimensions first to prevent OutOfMemory on high-megapixel cameras
+        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, boundsOptions)
+        }
+        val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+        var sampleSize = 1
+        while (maxDim / sampleSize > 1600) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
         val rawBmp = context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream)
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
         } ?: return null
 
         val matrix = android.graphics.Matrix()
@@ -2683,7 +2699,8 @@ private fun MobileScanPanel(
     onConfirmScan: () -> Unit,
     onRescanQr: () -> Unit,
     onChangeBagClick: () -> Unit,
-    onManualConfirmQr2: () -> Unit
+    onManualConfirmQr2: () -> Unit,
+    onPickGalleryImage: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // 1. Sleek Modern Process Tracker with Linear Progress Bar
@@ -2693,6 +2710,95 @@ private fun MobileScanPanel(
             targetShelfCode = targetShelfCode,
             isQr2Confirmed = isQr2Confirmed
         )
+
+        // 1b. Test Disease & Specimen Upload Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceAlt),
+            border = BorderStroke(1.dp, Border)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF38BDF8).copy(alpha = 0.15f))
+                            .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GalleryVectorIcon(color = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Test Disease & AI Grading",
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF38BDF8).copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "GALLERY",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "Import a mushroom photo from your gallery to analyze with the on-device AI model",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onPickGalleryImage,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        GalleryVectorIcon(color = Color.White, modifier = Modifier.size(17.dp))
+                        Text(
+                            text = "Pick Image from Gallery to Scan",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
 
         // 2. Active Stage View / Live Auto Scanner
         when (scanStage) {
@@ -2704,7 +2810,8 @@ private fun MobileScanPanel(
                     isQrMode = true,
                     instructionTitle = "Step 1: Point Camera at Collar QR 1",
                     instructionSubtitle = "⚡ Automatically identifies bag number and shelf location",
-                    onQrDetected = onAutoQrDetected
+                    onQrDetected = onAutoQrDetected,
+                    onGalleryClick = onPickGalleryImage
                 )
 
                 Card(
@@ -2752,24 +2859,53 @@ private fun MobileScanPanel(
                     isQrMode = false,
                     instructionTitle = "Step 2: Frame Mushroom Flush (Bag #$targetBagNumber)",
                     instructionSubtitle = "Shelf $targetShelfCode locked · Aim camera & tap button below",
-                    onCaptureImage = onAutoPhotoCaptured
+                    onCaptureImage = onAutoPhotoCaptured,
+                    onGalleryClick = onPickGalleryImage
                 )
 
-                OutlinedButton(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
-                    onClick = onRescanQr,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.5.dp, Border)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        "↺  SWITCH TO DIFFERENT QR CODE",
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.5.sp
-                    )
+                    OutlinedButton(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        onClick = onRescanQr,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, Border)
+                    ) {
+                        Text(
+                            "↺  SWITCH QR",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    OutlinedButton(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(46.dp),
+                        onClick = onPickGalleryImage,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.7f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            GalleryVectorIcon(color = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                            Text(
+                                "PICK FROM GALLERY",
+                                color = Color(0xFF38BDF8),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
                 }
             }
 
@@ -2782,7 +2918,8 @@ private fun MobileScanPanel(
                     isQrMode = true,
                     instructionTitle = "Step 3: Point at Confirmation QR 2 (Bag #$targetBagNumber)",
                     instructionSubtitle = "⚡ Verifies physical placement on Shelf $targetShelfCode before saving",
-                    onQrDetected = onAutoQrDetected
+                    onQrDetected = onAutoQrDetected,
+                    onGalleryClick = onPickGalleryImage
                 )
 
                 // Info card showing target bag and captured specimen summary
@@ -2798,6 +2935,7 @@ private fun MobileScanPanel(
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        val hasDets = (inferenceSummary?.detections?.size ?: 0) > 0
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2815,12 +2953,14 @@ private fun MobileScanPanel(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            val grade = inferenceSummary?.primaryGrade ?: ScanResult.ClassA
-                            StatusPill(label = grade.name, color = grade.color)
+                            val grade = inferenceSummary?.primaryGrade
+                            val pLabel = if (inferenceSummary?.hasContamination == true) "⚠️ Contaminated" else if (hasDets && grade != null) grade.name else "No Match"
+                            val pColor = if (inferenceSummary?.hasContamination == true) ScanResult.Reject.color else if (hasDets && grade != null) grade.color else TextMuted
+                            StatusPill(label = pLabel, color = pColor)
                         }
 
                         Text(
-                            text = "Specimen analyzed (${inferenceSummary?.detections?.size ?: 1} mushrooms). Scan the Confirmation QR (QR 2) sticker on this bag to verify location and unlock saving.",
+                            text = if (hasDets) "Specimen analyzed (${inferenceSummary?.detections?.size ?: 1} mushrooms). Scan Confirmation QR (QR 2) to verify location and unlock saving." else "No mushroom caps matched with sufficient confidence (>20%). Scan QR 2 or retake photo.",
                             color = TextMuted,
                             fontSize = 11.sp,
                             lineHeight = 15.sp
@@ -2965,7 +3105,7 @@ private fun MobileScanPanel(
                                     } else if (count == 1) {
                                         "Grade: ${inferenceSummary.primaryGrade.name} · Confidence: ${(inferenceSummary.primaryConfidence * 100).toInt()}%"
                                     } else {
-                                        "No mushroom detected"
+                                        "No mushroom caps or disease matched threshold (>20%)"
                                     }
                                     Text(
                                         text = subtitle,
@@ -2981,6 +3121,29 @@ private fun MobileScanPanel(
                                     color = if (inferenceSummary.hasContamination) ScanResult.Reject.color else if (count > 0) inferenceSummary.primaryGrade.color else TextMuted
                                 )
                             }
+                        }
+                    }
+                }
+
+                // If no detections matched threshold: provide disease test shortcut and explanation
+                if (inferenceSummary != null && inferenceSummary.detections.isEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF262018)),
+                        border = BorderStroke(1.dp, Color(0xFFF57C00).copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("⚠️", fontSize = 16.sp)
+                                Text("No Mushroom or Disease Detected", color = Color(0xFFFFA726), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Text(
+                                "YOLOv8 analyzed this image, but all detection box confidences were below threshold. Please ensure the camera is steady, well lit, and centered on the mushroom cluster.",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
                         }
                     }
                 }
@@ -3082,6 +3245,23 @@ private fun MobileScanPanel(
                                 letterSpacing = 0.5.sp
                             )
                         }
+                    }
+                }
+
+                OutlinedButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp),
+                    onClick = onPickGalleryImage,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.2.dp, Color(0xFF38BDF8).copy(alpha = 0.7f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        GalleryVectorIcon(color = Color(0xFF38BDF8), modifier = Modifier.size(15.dp))
+                        Text("Pick Another Image from Gallery", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -3231,6 +3411,54 @@ private fun ScanScreen(
     var activeDiseaseLabel by remember { mutableStateOf("") }
     var activeDiseaseConfidence by remember { mutableStateOf(0f) }
 
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isScanning = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val bmp = decodeAndOrientBitmap(context, uri)
+                    if (bmp != null) {
+                        val secondQr = decodeQrFromBitmap(bmp)
+                        val secondParsed = if (secondQr != null) parseQrPayload(secondQr, repository) else null
+                        val bagToUse = secondParsed?.bagNumber ?: targetBagNumber
+
+                        val summary = detector.detect(bmp)
+                        withContext(Dispatchers.Main) {
+                            capturedBitmap = bmp
+                            targetBagNumber = bagToUse
+                            inferenceSummary = summary
+                            isScanning = false
+                            isQr2Confirmed = true
+                            qrConflictDetected = false
+                            conflictingBagNumber = null
+                            qrErrorMessage = null
+                            scanStage = ScanStage.ReviewConfirmation
+
+                            if (summary.hasContamination) {
+                                activeDiseaseLabel = summary.primaryLabel
+                                activeDiseaseConfidence = summary.primaryConfidence
+                                showDiseaseDialog = true
+                                alarmManager.triggerContaminationAlarm()
+                            }
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            isScanning = false
+                            qrErrorMessage = "⚠️ Could not decode image from gallery. Please try another image."
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isScanning = false
+                        qrErrorMessage = "⚠️ Error analyzing image: ${e.localizedMessage ?: "Unknown error"}"
+                    }
+                }
+            }
+        }
+    }
+
     val onAutoQrDetected: (String) -> Unit = { rawText ->
         when (scanStage) {
             ScanStage.ScanQr -> {
@@ -3347,7 +3575,10 @@ private fun ScanScreen(
         val summary = inferenceSummary
         val bmp = capturedBitmap
         if (summary != null && bmp != null && isQr2Confirmed) {
-            scope.launch(Dispatchers.IO) {
+            if (summary.detections.isEmpty()) {
+                qrErrorMessage = "⚠️ No mushroom caps or disease detected in specimen. Please retake photo before saving."
+            } else {
+                scope.launch(Dispatchers.IO) {
                 val photoPath = saveScanPhoto(context, bmp, targetBagNumber)
                 val breakdown = if (summary.detections.size > 1) {
                     summary.detections.groupBy { it.label.replace('_', ' ') }
@@ -3385,7 +3616,8 @@ private fun ScanScreen(
                     targetBagNumber = if (targetBagNumber < repository.activeBatch.targetBagCount) targetBagNumber + 1 else 1
                 }
             }
-        } else if (!isQr2Confirmed) {
+        }
+    } else if (!isQr2Confirmed) {
             qrErrorMessage = "⚠️ Confirmation QR 2 must be scanned to unlock and save Bag #$targetBagNumber."
         }
     }
@@ -3404,6 +3636,41 @@ private fun ScanScreen(
                 onOpenAssistant()
             }
         )
+    }
+
+    if (isScanning) {
+        Dialog(onDismissRequest = {}) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Surface),
+                border = BorderStroke(1.dp, Border)
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = EmeraldPrimary,
+                        modifier = Modifier.size(32.dp),
+                        strokeWidth = 3.dp
+                    )
+                    Column {
+                        Text(
+                            text = "Analyzing Specimen...",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Running YOLOv8 AI detection & disease diagnosis",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showBagSelectorDialog) {
@@ -3595,7 +3862,8 @@ private fun ScanScreen(
             onConfirmScan = onConfirmScan,
             onRescanQr = onRescanQr,
             onChangeBagClick = { showBagSelectorDialog = true },
-            onManualConfirmQr2 = { showManualConfirmDialog = true }
+            onManualConfirmQr2 = { showManualConfirmDialog = true },
+            onPickGalleryImage = { galleryLauncher.launch("image/*") }
         )
 
         AiCommandCenter(
