@@ -149,6 +149,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.layout.ContentScale
 import java.util.Calendar
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import com.example.pleurotech.data.auth.UserProfile
 import android.content.Context
 import android.Manifest
@@ -2049,6 +2050,200 @@ private fun SupabaseSyncDialog(
 }
 
 @Composable
+private fun InspectionDatePickerDialog(
+    repository: PleuroTechRepository,
+    currentSelectedDate: LocalDate?,
+    onDateSelected: (LocalDate?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val today = remember { LocalDate.now() }
+    val yesterday = remember { today.minusDays(1) }
+    val distinctDates = remember(repository.scans.size) { repository.distinctScanDates() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("📅", fontSize = 20.sp)
+                Column {
+                    Text("Choose Inspection Date", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                    Text("Select a specific day to view bags & disease status", fontSize = 11.5.sp, color = TextMuted)
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Quick Date Shortcuts
+                Text("QUICK SHORTCUTS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted, letterSpacing = 0.8.sp)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isToday = currentSelectedDate == today
+                    Surface(
+                        onClick = {
+                            onDateSelected(today)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isToday) EmeraldPrimary.copy(alpha = 0.12f) else SurfaceAlt,
+                        border = BorderStroke(1.dp, if (isToday) EmeraldPrimary else Border)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Today", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (isToday) EmeraldPrimary else TextPrimary)
+                            Text(today.format(DateTimeFormatter.ofPattern("MMM d")), fontSize = 10.sp, color = TextMuted)
+                        }
+                    }
+
+                    val isYesterday = currentSelectedDate == yesterday
+                    Surface(
+                        onClick = {
+                            onDateSelected(yesterday)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isYesterday) EmeraldPrimary.copy(alpha = 0.12f) else SurfaceAlt,
+                        border = BorderStroke(1.dp, if (isYesterday) EmeraldPrimary else Border)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Yesterday", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (isYesterday) EmeraldPrimary else TextPrimary)
+                            Text(yesterday.format(DateTimeFormatter.ofPattern("MMM d")), fontSize = 10.sp, color = TextMuted)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                // Dates with Recorded Scans
+                if (distinctDates.isNotEmpty()) {
+                    Text("DATES WITH RECORDED SCANS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted, letterSpacing = 0.8.sp)
+
+                    distinctDates.forEach { date ->
+                        val isSelected = currentSelectedDate == date
+                        val counts = repository.countsForDate(date)
+                        Surface(
+                            onClick = {
+                                onDateSelected(date)
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) EmeraldPrimary.copy(alpha = 0.12f) else SurfaceAlt,
+                            border = BorderStroke(1.dp, if (isSelected) EmeraldPrimary else Border)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = date.format(DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy")),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = if (isSelected) EmeraldPrimary else TextPrimary
+                                    )
+                                    Text(
+                                        text = "${counts.classA} Prime · ${counts.classB} Standard" + if (counts.reject > 0) " · ${counts.reject} Reject" else "",
+                                        fontSize = 10.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = if (counts.reject > 0) ScanResult.Reject.color.copy(alpha = 0.15f) else ScanResult.ClassA.color.copy(alpha = 0.15f),
+                                        border = BorderStroke(0.8.dp, if (counts.reject > 0) ScanResult.Reject.color.copy(alpha = 0.45f) else ScanResult.ClassA.color.copy(alpha = 0.45f))
+                                    ) {
+                                        Text(
+                                            text = if (counts.reject > 0) "⚠️ ${counts.reject} With Disease" else "🛡️ Clean",
+                                            color = if (counts.reject > 0) ScanResult.Reject.color else ScanResult.ClassA.color,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "${counts.total} bags",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                // Full calendar picker
+                OutlinedButton(
+                    onClick = {
+                        val initial = currentSelectedDate ?: today
+                        val picker = android.app.DatePickerDialog(
+                            context,
+                            { _, year, month, dayOfMonth ->
+                                val picked = LocalDate.of(year, month + 1, dayOfMonth)
+                                onDateSelected(picked)
+                                onDismiss()
+                            },
+                            initial.year,
+                            initial.monthValue - 1,
+                            initial.dayOfMonth
+                        )
+                        picker.show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldPrimary)
+                ) {
+                    Text("🗓️ Open Full Calendar...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            if (currentSelectedDate != null) {
+                TextButton(
+                    onClick = {
+                        onDateSelected(null)
+                        onDismiss()
+                    }
+                ) {
+                    Text("Reset to Current Week", color = TextMuted, fontSize = 12.sp)
+                }
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Close", color = TextPrimary, fontSize = 12.sp)
+            }
+        }
+    )
+}
+
+@Composable
 private fun DashboardScreen(
     repository: PleuroTechRepository,
     onOpenHistory: () -> Unit,
@@ -2057,13 +2252,29 @@ private fun DashboardScreen(
     val counts = repository.counts()
     val recent = repository.recentScans()
     val latest = repository.latestScan
-    val trend = repository.trend()
+    var chosenDate by remember { mutableStateOf<LocalDate?>(null) }
+    var trendDays by remember { mutableIntStateOf(7) }
+    var showDatePickerDialog by remember { mutableStateOf(false) }
+
+    val trendEndDate = chosenDate ?: LocalDate.now()
+    val trend = remember(repository.scans.size, trendDays, trendEndDate) {
+        repository.trend(days = trendDays, endDate = trendEndDate)
+    }
     val alerts = repository.contaminationAlerts()
 
     val isOwner = repository.authManager?.getCurrentUser()?.isOwner ?: true
     var inspectionModalScan by remember { mutableStateOf<ScanRecord?>(null) }
     var selectedShelfForModal by remember { mutableStateOf<ShelfSummary?>(null) }
     var showAddRackDialog by remember { mutableStateOf(false) }
+
+    if (showDatePickerDialog) {
+        InspectionDatePickerDialog(
+            repository = repository,
+            currentSelectedDate = chosenDate,
+            onDateSelected = { chosenDate = it },
+            onDismiss = { showDatePickerDialog = false }
+        )
+    }
 
     if (showAddRackDialog) {
         val nextRackLetter = ('A'.code + repository.activeBatch.rackCount).toChar()
@@ -2177,8 +2388,133 @@ private fun DashboardScreen(
             ContaminationAlertPanel(alerts = alerts)
         }
         item {
-            ChartCard(title = "Premium Yield Trend", subtitle = "Last 7 days") {
-                TrendStackedBars(trend = trend)
+            val chartSubtitle = if (chosenDate != null) {
+                "Specific: ${chosenDate!!.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy"))}"
+            } else {
+                val start = trend.firstOrNull()?.date
+                val end = trend.lastOrNull()?.date
+                if (start != null && end != null) {
+                    "${start.format(DateTimeFormatter.ofPattern("MMM d"))} – ${end.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}"
+                } else {
+                    "Last $trendDays days"
+                }
+            }
+
+            ChartCard(
+                title = "Premium Yield Trend",
+                subtitle = chartSubtitle,
+                headerAction = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            onClick = {
+                                val current = chosenDate ?: LocalDate.now()
+                                chosenDate = current.minusDays(trendDays.toLong())
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceAlt,
+                            border = BorderStroke(1.dp, Border)
+                        ) {
+                            Text(
+                                text = "◀",
+                                fontSize = 11.sp,
+                                color = TextPrimary,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        val canAdvance = (chosenDate ?: LocalDate.now()).isBefore(LocalDate.now())
+                        Surface(
+                            onClick = {
+                                val current = chosenDate ?: LocalDate.now()
+                                val next = current.plusDays(trendDays.toLong())
+                                val today = LocalDate.now()
+                                chosenDate = if (next.isAfter(today) || next == today) null else next
+                            },
+                            enabled = canAdvance,
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (canAdvance) SurfaceAlt else SurfaceAlt.copy(alpha = 0.4f),
+                            border = BorderStroke(1.dp, if (canAdvance) Border else Border.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "▶",
+                                fontSize = 11.sp,
+                                color = if (canAdvance) TextPrimary else TextMuted,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        Surface(
+                            onClick = { showDatePickerDialog = true },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (chosenDate != null) EmeraldPrimary.copy(alpha = 0.14f) else SurfaceAlt,
+                            border = BorderStroke(1.dp, if (chosenDate != null) EmeraldPrimary else Border)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("📅", fontSize = 11.sp)
+                                Text(
+                                    text = if (chosenDate != null) {
+                                        chosenDate!!.format(DateTimeFormatter.ofPattern("MMM d"))
+                                    } else {
+                                        "Choose Date"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (chosenDate != null) EmeraldPrimary else TextPrimary
+                                )
+                                Text("▾", fontSize = 10.sp, color = if (chosenDate != null) EmeraldPrimary else TextMuted)
+                            }
+                        }
+                    }
+                }
+            ) {
+                if (chosenDate != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = EmeraldPrimary.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("🗓️", fontSize = 11.sp)
+                                Text(
+                                    text = "Viewing: ${chosenDate!!.format(DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy"))}",
+                                    color = EmeraldPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                text = "✕ Reset to Today",
+                                color = EmeraldPrimary,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable { chosenDate = null }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                TrendStackedBars(
+                    trend = trend,
+                    initialSelectedDate = chosenDate
+                )
             }
         }
         item {
@@ -4558,9 +4894,35 @@ private fun HistoryScreen(
     var page by remember { mutableIntStateOf(1) }
     val perPage = 20
     val totalPages = max(1, (repository.scans.size + perPage - 1) / perPage)
-    val pageRows = repository.history(page.coerceAtMost(totalPages), perPage)
+    var selectedDateFilter by remember { mutableStateOf<LocalDate?>(null) }
+    var showHistoryDatePicker by remember { mutableStateOf(false) }
+
+    val displayScans = remember(repository.scans.size, selectedDateFilter, page) {
+        if (selectedDateFilter != null) {
+            repository.scansForDate(selectedDateFilter!!)
+        } else {
+            repository.history(page.coerceAtMost(totalPages), perPage)
+        }
+    }
+
+    val displayCounts = remember(repository.scans.size, selectedDateFilter) {
+        if (selectedDateFilter != null) {
+            repository.countsForDate(selectedDateFilter!!)
+        } else {
+            repository.counts()
+        }
+    }
 
     var selectedScanForModal by remember { mutableStateOf<ScanRecord?>(null) }
+
+    if (showHistoryDatePicker) {
+        InspectionDatePickerDialog(
+            repository = repository,
+            currentSelectedDate = selectedDateFilter,
+            onDateSelected = { selectedDateFilter = it },
+            onDismiss = { showHistoryDatePicker = false }
+        )
+    }
 
     if (selectedScanForModal != null) {
         InspectionDetailModal(
@@ -4611,33 +4973,90 @@ private fun HistoryScreen(
                 }
             }
         }
-        GradeSummary(counts = repository.counts())
+        GradeSummary(counts = displayCounts)
         ReportPreviewPanel(report = repository.report())
-        DataCard {
-            ScanRows(
-                scans = pageRows,
-                compact = false,
-                onSelectScan = { selectedScanForModal = it },
-                onVerify = { scan, result -> repository.verifyScan(scan.id, result) }
-            )
-        }
+
+        // Farmer Date Filter Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(
-                enabled = page > 1,
-                onClick = { page-- }
-            ) {
-                Text("Previous")
+            Text(
+                text = if (selectedDateFilter != null) {
+                    "Showing: ${selectedDateFilter!!.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy"))} (${displayScans.size} bags)"
+                } else {
+                    "All Inspection Dates (${repository.scans.size} total)"
+                },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (selectedDateFilter != null) EmeraldPrimary else TextPrimary
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (selectedDateFilter != null) {
+                    TextButton(
+                        onClick = { selectedDateFilter = null },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("Show All", fontSize = 11.sp, color = TextMuted)
+                    }
+                }
+                Surface(
+                    onClick = { showHistoryDatePicker = true },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (selectedDateFilter != null) EmeraldPrimary.copy(alpha = 0.14f) else SurfaceAlt,
+                    border = BorderStroke(1.dp, if (selectedDateFilter != null) EmeraldPrimary else Border)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("📅", fontSize = 11.sp)
+                        Text(
+                            text = if (selectedDateFilter != null) {
+                                selectedDateFilter!!.format(DateTimeFormatter.ofPattern("MMM d"))
+                            } else {
+                                "Filter by Date"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (selectedDateFilter != null) EmeraldPrimary else TextPrimary
+                        )
+                        Text("▾", fontSize = 10.sp, color = if (selectedDateFilter != null) EmeraldPrimary else TextMuted)
+                    }
+                }
             }
-            Text("Page $page of $totalPages", color = TextMuted, fontSize = 12.sp)
-            OutlinedButton(
-                enabled = page < totalPages,
-                onClick = { page++ }
+        }
+
+        DataCard {
+            ScanRows(
+                scans = displayScans,
+                compact = false,
+                onSelectScan = { selectedScanForModal = it },
+                onVerify = { scan, result -> repository.verifyScan(scan.id, result) }
+            )
+        }
+        if (selectedDateFilter == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Next")
+                OutlinedButton(
+                    enabled = page > 1,
+                    onClick = { page-- }
+                ) {
+                    Text("Previous")
+                }
+                Text("Page $page of $totalPages", color = TextMuted, fontSize = 12.sp)
+                OutlinedButton(
+                    enabled = page < totalPages,
+                    onClick = { page++ }
+                ) {
+                    Text("Next")
+                }
             }
         }
         val isOwner = repository.authManager?.getCurrentUser()?.isOwner ?: true
@@ -4684,8 +5103,25 @@ private fun HistoryScreen(
 private fun AnalyticsScreen(repository: PleuroTechRepository) {
     val counts = repository.counts()
     var selectedDays by remember { mutableIntStateOf(7) }
-    val trend = repository.trend(selectedDays)
-    val insights = repository.insights(selectedDays)
+    var chosenDate by remember { mutableStateOf<LocalDate?>(null) }
+    var showAnalyticsDatePicker by remember { mutableStateOf(false) }
+
+    if (showAnalyticsDatePicker) {
+        InspectionDatePickerDialog(
+            repository = repository,
+            currentSelectedDate = chosenDate,
+            onDateSelected = { chosenDate = it },
+            onDismiss = { showAnalyticsDatePicker = false }
+        )
+    }
+
+    val trendEndDate = chosenDate ?: LocalDate.now()
+    val trend = remember(repository.scans.size, selectedDays, trendEndDate) {
+        repository.trend(selectedDays, trendEndDate)
+    }
+    val insights = remember(repository.scans.size, selectedDays, trendEndDate) {
+        repository.insights(selectedDays, trendEndDate)
+    }
     val forecast = repository.harvestForecast(selectedDays)
     val reflection = repository.preHarvestReflection(selectedDays)
 
@@ -4696,8 +5132,54 @@ private fun AnalyticsScreen(repository: PleuroTechRepository) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        PageTitle("Analytics", "$selectedDays-day performance overview")
-        TrendWindowSelector(selectedDays = selectedDays, onSelect = { selectedDays = it })
+        val overviewSub = if (chosenDate != null) {
+            "Ending ${chosenDate!!.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy"))}"
+        } else {
+            "$selectedDays-day performance overview"
+        }
+        PageTitle("Analytics", overviewSub)
+        TrendWindowSelector(
+            selectedDays = selectedDays,
+            chosenDate = chosenDate,
+            onSelect = {
+                selectedDays = it
+                chosenDate = null
+            },
+            onPickDate = { showAnalyticsDatePicker = true }
+        )
+
+        if (chosenDate != null) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = EmeraldPrimary.copy(alpha = 0.08f),
+                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "🗓️ Viewing window ending: ${chosenDate!!.format(DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy"))}",
+                        color = EmeraldPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "✕ Reset to Today",
+                        color = EmeraldPrimary,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clickable { chosenDate = null }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
         AdvancedInsightHero(insights = insights)
         ForecastPanel(forecast = forecast)
         PreHarvestReflectionPanel(reflection = reflection)
@@ -4722,14 +5204,19 @@ private fun AnalyticsScreen(repository: PleuroTechRepository) {
         ChartCard(title = "Grade Distribution", subtitle = "All time") {
             DistributionDonut(counts = counts)
         }
-        ChartCard(title = "Daily Totals", subtitle = "Last $selectedDays days", showLegend = false) {
-            DailyTotalsBars(trend = trend)
+        val chartRangeSub = if (chosenDate != null) {
+            "Ending ${chosenDate?.format(DateTimeFormatter.ofPattern("MMM d, yyyy")) ?: ""}"
+        } else {
+            "Last $selectedDays days"
+        }
+        ChartCard(title = "Daily Totals", subtitle = chartRangeSub, showLegend = false) {
+            DailyTotalsBars(trend = trend, initialSelectedDate = chosenDate)
         }
         ChartCard(title = "Reject Risk", subtitle = "Rate by day", showLegend = false) {
             RejectRateLineChart(trend = trend)
         }
-        ChartCard(title = "Grade Breakdown Per Day", subtitle = "Last $selectedDays days") {
-            TrendStackedBars(trend = trend)
+        ChartCard(title = "Grade Breakdown Per Day", subtitle = chartRangeSub) {
+            TrendStackedBars(trend = trend, initialSelectedDate = chosenDate)
         }
         SectionLabel("Daily Breakdown Table")
         DataCard {
@@ -5927,7 +6414,12 @@ private fun AssistantBubble(message: AssistantMessage) {
 }
 
 @Composable
-private fun TrendWindowSelector(selectedDays: Int, onSelect: (Int) -> Unit) {
+private fun TrendWindowSelector(
+    selectedDays: Int,
+    chosenDate: LocalDate? = null,
+    onSelect: (Int) -> Unit,
+    onPickDate: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5937,8 +6429,8 @@ private fun TrendWindowSelector(selectedDays: Int, onSelect: (Int) -> Unit) {
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        listOf(7, 14).forEach { days ->
-            val selected = selectedDays == days
+        listOf(7, 14, 30).forEach { days ->
+            val selected = selectedDays == days && chosenDate == null
             Button(
                 modifier = Modifier.weight(1f),
                 onClick = { onSelect(days) },
@@ -5950,6 +6442,19 @@ private fun TrendWindowSelector(selectedDays: Int, onSelect: (Int) -> Unit) {
             ) {
                 Text("${days}D")
             }
+        }
+
+        val isDatePicked = chosenDate != null
+        Button(
+            modifier = Modifier.weight(1.3f),
+            onClick = onPickDate,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isDatePicked) EmeraldPrimary.copy(alpha = 0.15f) else Surface,
+                contentColor = if (isDatePicked) EmeraldPrimary else TextMuted
+            ),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Text(if (isDatePicked) "📅 ${chosenDate?.format(DateTimeFormatter.ofPattern("MMM d")) ?: ""}" else "📅 Choose Date", fontSize = 11.5.sp)
         }
     }
 }
@@ -7071,6 +7576,7 @@ private fun ChartCard(
     title: String,
     subtitle: String,
     showLegend: Boolean = true,
+    headerAction: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     DataCard {
@@ -7079,8 +7585,17 @@ private fun ChartCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            Text(subtitle, color = TextMuted, fontSize = 11.sp)
+            if (headerAction != null) {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(subtitle, color = TextMuted, fontSize = 11.sp)
+                }
+                Spacer(Modifier.width(8.dp))
+                headerAction()
+            } else {
+                Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text(subtitle, color = TextMuted, fontSize = 11.sp)
+            }
         }
         Spacer(Modifier.height(12.dp))
         if (showLegend) {
@@ -7115,7 +7630,11 @@ private fun ChartLegend() {
 }
 
 @Composable
-private fun TrendStackedBars(trend: List<DailyTrend>) {
+private fun TrendStackedBars(
+    trend: List<DailyTrend>,
+    initialSelectedDate: LocalDate? = null,
+    onDaySelected: ((DailyTrend) -> Unit)? = null
+) {
     val emerald = EmeraldPrimary
     val surfaceAltColor = SurfaceAlt
     val borderColor = Border
@@ -7125,8 +7644,16 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
     val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
     val hasAnyData = trend.any { it.total > 0 }
 
-    var selectedDay by remember(trend) {
-        mutableStateOf(trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull())
+    var selectedDay by remember(trend, initialSelectedDate) {
+        mutableStateOf(
+            if (initialSelectedDate != null) {
+                trend.firstOrNull { it.date == initialSelectedDate }
+                    ?: trend.firstOrNull { it.total > 0 }
+                    ?: trend.lastOrNull()
+            } else {
+                trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull()
+            }
+        )
     }
 
     Column(
@@ -7350,7 +7877,10 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clickable { selectedDay = day }
+                                .clickable {
+                                    selectedDay = day
+                                    onDaySelected?.invoke(day)
+                                }
                                 .padding(horizontal = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Bottom
@@ -7483,7 +8013,11 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
 }
 
 @Composable
-private fun DailyTotalsBars(trend: List<DailyTrend>) {
+private fun DailyTotalsBars(
+    trend: List<DailyTrend>,
+    initialSelectedDate: LocalDate? = null,
+    onDaySelected: ((DailyTrend) -> Unit)? = null
+) {
     val surfaceAltColor = SurfaceAlt
     val borderColor = Border
     val mutedColor = TextMuted
@@ -7494,8 +8028,16 @@ private fun DailyTotalsBars(trend: List<DailyTrend>) {
     val cyan = Color(0xFF38BDF8)
     val darkCyan = Color(0xFF0284C7)
 
-    var selectedDay by remember(trend) {
-        mutableStateOf(trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull())
+    var selectedDay by remember(trend, initialSelectedDate) {
+        mutableStateOf(
+            if (initialSelectedDate != null) {
+                trend.firstOrNull { it.date == initialSelectedDate }
+                    ?: trend.firstOrNull { it.total > 0 }
+                    ?: trend.lastOrNull()
+            } else {
+                trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull()
+            }
+        )
     }
 
     Column(
@@ -7679,7 +8221,10 @@ private fun DailyTotalsBars(trend: List<DailyTrend>) {
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clickable { selectedDay = day }
+                                .clickable {
+                                    selectedDay = day
+                                    onDaySelected?.invoke(day)
+                                }
                                 .padding(horizontal = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Bottom

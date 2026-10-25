@@ -147,10 +147,9 @@ class PleuroTechRepository(
         return scans.drop(start).take(perPage)
     }
 
-    fun trend(days: Int = 7): List<DailyTrend> {
-        val today = LocalDateTime.now().toLocalDate()
+    fun trend(days: Int = 7, endDate: LocalDate = LocalDate.now()): List<DailyTrend> {
         return (days - 1 downTo 0).map { offset ->
-            val day = today.minusDays(offset.toLong())
+            val day = endDate.minusDays(offset.toLong())
             val dayRows = scans.filter { it.timestamp.toLocalDate() == day }
             DailyTrend(
                 date = day,
@@ -162,8 +161,25 @@ class PleuroTechRepository(
         }
     }
 
-    fun insights(days: Int = 7): TrendInsights {
-        val trend = trend(days)
+    fun distinctScanDates(): List<LocalDate> {
+        return scans.map { it.timestamp.toLocalDate() }.distinct().sortedDescending()
+    }
+
+    fun countsForDate(date: LocalDate): ScanCounts {
+        val dayRows = scans.filter { it.timestamp.toLocalDate() == date }
+        return ScanCounts(
+            classA = dayRows.count { it.finalResult == ScanResult.ClassA },
+            classB = dayRows.count { it.finalResult == ScanResult.ClassB },
+            reject = dayRows.count { it.finalResult == ScanResult.Reject }
+        )
+    }
+
+    fun scansForDate(date: LocalDate): List<ScanRecord> {
+        return scans.filter { it.timestamp.toLocalDate() == date }
+    }
+
+    fun insights(days: Int = 7, endDate: LocalDate = LocalDate.now()): TrendInsights {
+        val trend = trend(days, endDate)
         val includedDates = trend.map { it.date }.toSet()
         val windowRows = scans.filter { it.timestamp.toLocalDate() in includedDates }
         val counts = ScanCounts(
