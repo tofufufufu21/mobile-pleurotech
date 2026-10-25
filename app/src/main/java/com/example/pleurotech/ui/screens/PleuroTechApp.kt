@@ -148,6 +148,7 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.layout.ContentScale
 import java.util.Calendar
+import java.time.LocalDate
 import com.example.pleurotech.data.auth.UserProfile
 import android.content.Context
 import android.Manifest
@@ -411,17 +412,22 @@ fun PleuroTechApp(repository: PleuroTechRepository) {
                                                 targetValue = if (isSelected) EmeraldPrimary else TextMuted,
                                                 label = "navIconColor"
                                             )
+                                            val pillBg by animateColorAsState(
+                                                targetValue = if (isSelected) EmeraldPrimary.copy(alpha = 0.12f) else Color.Transparent,
+                                                label = "navPillBg"
+                                            )
 
                                             Column(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(12.dp))
+                                                    .background(pillBg)
                                                     .clickable {
                                                         selectedTab = tab
                                                         if (tab == AppTab.Records) {
                                                             recordsSubTab = RecordsSubTab.History
                                                         }
                                                     }
-                                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    .padding(horizontal = 10.dp, vertical = 5.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                                 verticalArrangement = Arrangement.spacedBy(3.dp)
                                             ) {
@@ -2816,36 +2822,88 @@ private fun MobileScanPanel(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceAlt),
-                    border = BorderStroke(1.dp, Border)
+                    border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.25f))
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            LocationVectorIcon(color = ScanResult.ClassA.color, modifier = Modifier.size(16.dp))
-                            Text(
-                                text = "Current Target: Bag #$targetBagNumber (Shelf $targetShelfCode)",
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(EmeraldPrimary.copy(alpha = 0.12f))
+                                    .border(BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.35f)), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                LocationVectorIcon(color = EmeraldPrimary, modifier = Modifier.size(18.dp))
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "ACTIVE SCAN TARGET",
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.6.sp
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Bag #$targetBagNumber",
+                                        color = TextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(EmeraldPrimary.copy(alpha = 0.12f))
+                                            .border(BorderStroke(0.8.dp, EmeraldPrimary.copy(alpha = 0.35f)), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "Shelf $targetShelfCode",
+                                            color = EmeraldPrimary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        TextButton(onClick = onChangeBagClick) {
-                            Text(
-                                "Manual Select",
-                                color = ScanResult.ClassA.color,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+
+                        Surface(
+                            onClick = onChangeBagClick,
+                            shape = RoundedCornerShape(10.dp),
+                            color = EmeraldPrimary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.35f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                RefreshVectorIcon(color = EmeraldPrimary, modifier = Modifier.size(13.dp))
+                                Text(
+                                    text = "Change",
+                                    color = EmeraldPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
@@ -2943,15 +3001,37 @@ private fun MobileScanPanel(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                LocationVectorIcon(color = ScanResult.ClassA.color, modifier = Modifier.size(16.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(EmeraldPrimary.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    LocationVectorIcon(color = EmeraldPrimary, modifier = Modifier.size(15.dp))
+                                }
                                 Text(
-                                    text = "Target: Bag #$targetBagNumber (Shelf $targetShelfCode)",
+                                    text = "Bag #$targetBagNumber",
                                     color = TextPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(EmeraldPrimary.copy(alpha = 0.12f))
+                                        .border(BorderStroke(0.8.dp, EmeraldPrimary.copy(alpha = 0.35f)), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "Shelf $targetShelfCode",
+                                            color = EmeraldPrimary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                             }
                             val grade = inferenceSummary?.primaryGrade
                             val pLabel = if (inferenceSummary?.hasContamination == true) "⚠️ Contaminated" else if (hasDets && grade != null) grade.name else "No Match"
@@ -6478,7 +6558,7 @@ private fun GradeCard(modifier: Modifier, result: ScanResult, count: Int) {
                     .background(result.color)
             )
             Text(
-                text = result.displayName,
+                text = if (result == ScanResult.Reject) "Reject / Disease" else result.displayName,
                 color = result.color,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
@@ -6491,7 +6571,7 @@ private fun GradeCard(modifier: Modifier, result: ScanResult, count: Int) {
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = result.description,
+            text = if (result == ScanResult.Reject) "with disease / discard" else result.description,
             color = TextMuted,
             fontSize = 11.sp,
             maxLines = 1,
@@ -6796,6 +6876,23 @@ private fun ScanRows(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     ResultBadge(result = scan.finalResult, text = if (scan.verified) "V-${scan.finalResult.shortName}" else scan.finalResult.displayName)
+                    val hasDisease = scan.finalResult == ScanResult.Reject ||
+                        scan.classBreakdown.contains("Mold", ignoreCase = true) ||
+                        scan.classBreakdown.contains("Blotch", ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (hasDisease) ScanResult.Reject.color.copy(alpha = 0.15f) else ScanResult.ClassA.color.copy(alpha = 0.15f))
+                            .border(1.dp, if (hasDisease) ScanResult.Reject.color.copy(alpha = 0.4f) else ScanResult.ClassA.color.copy(alpha = 0.4f), RoundedCornerShape(50))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (hasDisease) "⚠️ With Disease" else "🛡️ No Disease",
+                            color = if (hasDisease) ScanResult.Reject.color else ScanResult.ClassA.color,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
@@ -7001,12 +7098,17 @@ private fun ChartLegend() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(9.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .size(8.dp)
+                        .clip(CircleShape)
                         .background(it.color)
                 )
-                Spacer(Modifier.width(6.dp))
-                Text(it.displayName, color = TextMuted, fontSize = 12.sp)
+                Spacer(Modifier.width(5.dp))
+                val label = when (it) {
+                    ScanResult.ClassA -> "Class A (Prime)"
+                    ScanResult.ClassB -> "Class B (Standard)"
+                    ScanResult.Reject -> "With Disease / Reject"
+                }
+                Text(label, color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -7014,46 +7116,367 @@ private fun ChartLegend() {
 
 @Composable
 private fun TrendStackedBars(trend: List<DailyTrend>) {
-    if (trend.all { it.total == 0 }) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "No yield trend data yet. New daily scans will populate this chart.",
-                color = TextMuted,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-        return
+    val emerald = EmeraldPrimary
+    val surfaceAltColor = SurfaceAlt
+    val borderColor = Border
+    val mutedColor = TextMuted
+    val primaryTextColor = TextPrimary
+    val today = remember { LocalDate.now() }
+    val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
+    val hasAnyData = trend.any { it.total > 0 }
+
+    var selectedDay by remember(trend) {
+        mutableStateOf(trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull())
     }
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(180.dp)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
-        val gap = 10.dp.toPx()
-        val barWidth = (size.width - gap * (trend.size - 1)) / trend.size
-        trend.forEachIndexed { index, day ->
-            var bottom = size.height
-            val x = index * (barWidth + gap)
-            listOf(
-                ScanResult.ClassA to day.classA,
-                ScanResult.ClassB to day.classB,
-                ScanResult.Reject to day.reject
-            ).forEach { (result, count) ->
-                val h = size.height * count / maxTotal
-                bottom -= h
-                drawRoundRect(
-                    color = result.color,
-                    topLeft = Offset(x, bottom),
-                    size = Size(barWidth, h),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        if (!hasAnyData) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(surfaceAltColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No yield trend data yet. New daily scans will populate this timeline.",
+                    color = mutedColor,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(16.dp)
                 )
+            }
+        } else {
+            // 1. Farmer Plain-English Day Inspection Callout
+            val active = selectedDay
+            if (active != null) {
+                val monthName = active.date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = surfaceAltColor,
+                    border = BorderStroke(1.dp, borderColor),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // Top row: Day label, total bags, and Disease Status badge
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "${active.label}, $monthName ${active.date.dayOfMonth}:",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp,
+                                    color = primaryTextColor
+                                )
+                                Text(
+                                    text = if (active.total > 0) "${active.total} bags scanned" else "0 bags scanned",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (active.total > 0) emerald else mutedColor
+                                )
+                            }
+
+                            if (active.total > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = if (active.reject > 0) ScanResult.Reject.color.copy(alpha = 0.15f) else ScanResult.ClassA.color.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, if (active.reject > 0) ScanResult.Reject.color.copy(alpha = 0.45f) else ScanResult.ClassA.color.copy(alpha = 0.45f))
+                                ) {
+                                    Text(
+                                        text = if (active.reject > 0) "⚠️ ${active.reject} With Disease" else "🛡️ No Disease",
+                                        color = if (active.reject > 0) ScanResult.Reject.color else ScanResult.ClassA.color,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "Tap any day to inspect",
+                                    color = mutedColor.copy(alpha = 0.6f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        // Bottom row (if scans exist): Prime vs Standard vs Discard breakdown
+                        if (active.total > 0) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Yield breakdown:",
+                                    fontSize = 10.sp,
+                                    color = mutedColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (active.classA > 0) {
+                                    Text(
+                                        "${active.classA} Prime",
+                                        color = ScanResult.ClassA.color,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                if (active.classB > 0) {
+                                    Text(
+                                        "${active.classB} Standard",
+                                        color = ScanResult.ClassB.color,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                if (active.reject > 0) {
+                                    Text(
+                                        "${active.reject} Discard",
+                                        color = ScanResult.Reject.color,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Chart Visual Area with Clean Baseline & Scale Guides (NO tall empty test tubes!)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(145.dp)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val scaleMargin = 56.dp.toPx()
+                    val plotWidth = size.width - scaleMargin
+                    val baselineY = size.height - 8.dp.toPx()
+                    val topY = 18.dp.toPx()
+                    val midY = (topY + baselineY) / 2f
+
+                    // Top guideline: stops cleanly before the scale badge
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.45f),
+                        start = Offset(0f, topY),
+                        end = Offset(plotWidth - 6.dp.toPx(), topY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                    )
+                    // Mid guideline: subtle dashed guide
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.25f),
+                        start = Offset(0f, midY),
+                        end = Offset(plotWidth - 6.dp.toPx(), midY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                    )
+                    // Baseline: solid grounded line
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.85f),
+                        start = Offset(0f, baselineY),
+                        end = Offset(plotWidth - 6.dp.toPx(), baselineY),
+                        strokeWidth = 1.5.dp.toPx()
+                    )
+                }
+
+                // Dedicated scale column on the right: crisp, high-contrast, immune to lines
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(56.dp)
+                        .align(Alignment.CenterEnd)
+                ) {
+                    // Top scale badge (e.g. "4 bags" or "1 bag")
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = surfaceAltColor,
+                        border = BorderStroke(1.dp, borderColor),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 7.dp)
+                    ) {
+                        Text(
+                            text = if (maxTotal == 1) "1 bag" else "$maxTotal bags",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryTextColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Baseline scale "0"
+                    Text(
+                        text = "0",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = mutedColor,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 0.dp, end = 6.dp)
+                    )
+                }
+
+                // 7-day columns
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 56.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    trend.forEach { day ->
+                        val isToday = day.date == today
+                        val isSelected = day.date == selectedDay?.date
+                        val barHeightFraction = (day.total.toFloat() / maxTotal).coerceIn(0f, 1f)
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { selectedDay = day }
+                                .padding(horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom
+                        ) {
+                            if (day.total > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isSelected) emerald.copy(alpha = 0.15f) else surfaceAltColor,
+                                    border = BorderStroke(1.dp, if (isSelected) emerald else borderColor)
+                                ) {
+                                    Text(
+                                        text = "${day.total}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isSelected) emerald else primaryTextColor,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+
+                                val activeHeight = (96.dp * barHeightFraction).coerceAtLeast(16.dp)
+                                Column(
+                                    modifier = Modifier
+                                        .width(22.dp)
+                                        .height(activeHeight)
+                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(
+                                                    BorderStroke(1.5.dp, emerald),
+                                                    RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                                                )
+                                            } else Modifier
+                                        )
+                                ) {
+                                    if (day.reject > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(day.reject.toFloat())
+                                                .background(ScanResult.Reject.color)
+                                        )
+                                    }
+                                    if (day.classB > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(day.classB.toFloat())
+                                                .background(ScanResult.ClassB.color)
+                                        )
+                                    }
+                                    if (day.classA > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(day.classA.toFloat())
+                                                .background(ScanResult.ClassA.color)
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(14.dp)
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(1.5.dp))
+                                        .background(mutedColor.copy(alpha = 0.35f))
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+
+            // 3. Day Labels (Mon, Tue, Wed...) aligned directly with columns
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 56.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                trend.forEach { day ->
+                    val isToday = day.date == today
+                    val isSelected = day.date == selectedDay?.date
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedDay = day }
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) emerald.copy(alpha = 0.12f) else Color.Transparent)
+                            .padding(vertical = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            text = day.label.take(3),
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                            color = when {
+                                isSelected -> emerald
+                                isToday -> emerald
+                                else -> mutedColor
+                            }
+                        )
+                        Text(
+                            text = "${day.date.dayOfMonth}",
+                            fontSize = 9.sp,
+                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                isSelected -> emerald
+                                isToday -> emerald
+                                else -> mutedColor.copy(alpha = 0.6f)
+                            }
+                        )
+                        if (isToday) {
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(emerald)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -7061,108 +7484,568 @@ private fun TrendStackedBars(trend: List<DailyTrend>) {
 
 @Composable
 private fun DailyTotalsBars(trend: List<DailyTrend>) {
-    if (trend.all { it.total == 0 }) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Daily totals will appear here as bags are scanned.",
-                color = TextMuted,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-        return
+    val surfaceAltColor = SurfaceAlt
+    val borderColor = Border
+    val mutedColor = TextMuted
+    val primaryTextColor = TextPrimary
+    val today = remember { LocalDate.now() }
+    val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
+    val hasAnyData = trend.any { it.total > 0 }
+    val cyan = Color(0xFF38BDF8)
+    val darkCyan = Color(0xFF0284C7)
+
+    var selectedDay by remember(trend) {
+        mutableStateOf(trend.firstOrNull { it.total > 0 } ?: trend.lastOrNull())
     }
-    val barColor = InfoBlue.copy(alpha = 0.45f)
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(180.dp)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        val maxTotal = max(1, trend.maxOfOrNull { it.total } ?: 1)
-        val gap = 10.dp.toPx()
-        val barWidth = (size.width - gap * (trend.size - 1)) / trend.size
-        trend.forEachIndexed { index, day ->
-            val h = size.height * day.total / maxTotal
-            drawRoundRect(
-                color = barColor,
-                topLeft = Offset(index * (barWidth + gap), size.height - h),
-                size = Size(barWidth, h),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
-            )
+        if (!hasAnyData) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(surfaceAltColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Daily totals will appear here as bags are scanned.",
+                    color = mutedColor,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Selected Day Banner
+            val active = selectedDay
+            if (active != null) {
+                val monthName = active.date.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = surfaceAltColor,
+                    border = BorderStroke(1.dp, borderColor),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${active.label}, $monthName ${active.date.dayOfMonth}:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = primaryTextColor
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (active.total > 0) "${active.total} bags scanned" else "0 bags scanned",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (active.total > 0) cyan else mutedColor
+                            )
+                            if (active.total > 0) {
+                                if (active.reject > 0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = ScanResult.Reject.color.copy(alpha = 0.15f),
+                                        border = BorderStroke(0.8.dp, ScanResult.Reject.color)
+                                    ) {
+                                        Text(
+                                            "⚠️ ${active.reject} With Disease",
+                                            color = ScanResult.Reject.color,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = ScanResult.ClassA.color.copy(alpha = 0.15f),
+                                        border = BorderStroke(0.8.dp, ScanResult.ClassA.color)
+                                    ) {
+                                        Text(
+                                            "🛡️ No Disease",
+                                            color = ScanResult.ClassA.color,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Visual Chart Area with Baseline & Scale (NO hollow ghost tubes!)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(145.dp)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val scaleMargin = 56.dp.toPx()
+                    val plotWidth = size.width - scaleMargin
+                    val baselineY = size.height - 8.dp.toPx()
+                    val topY = 18.dp.toPx()
+                    val midY = (topY + baselineY) / 2f
+
+                    // Top guideline: stops cleanly before the scale badge
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.45f),
+                        start = Offset(0f, topY),
+                        end = Offset(plotWidth - 6.dp.toPx(), topY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                    )
+                    // Mid guideline: subtle dashed guide
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.25f),
+                        start = Offset(0f, midY),
+                        end = Offset(plotWidth - 6.dp.toPx(), midY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                    )
+                    // Baseline: solid grounded line
+                    drawLine(
+                        color = borderColor.copy(alpha = 0.85f),
+                        start = Offset(0f, baselineY),
+                        end = Offset(plotWidth - 6.dp.toPx(), baselineY),
+                        strokeWidth = 1.5.dp.toPx()
+                    )
+                }
+
+                // Dedicated scale column on the right: crisp, high-contrast, immune to lines
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(56.dp)
+                        .align(Alignment.CenterEnd)
+                ) {
+                    // Top scale badge (e.g. "4 bags" or "1 bag")
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = surfaceAltColor,
+                        border = BorderStroke(1.dp, borderColor),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 7.dp)
+                    ) {
+                        Text(
+                            text = if (maxTotal == 1) "1 bag" else "$maxTotal bags",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryTextColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Baseline scale "0"
+                    Text(
+                        text = "0",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = mutedColor,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 0.dp, end = 6.dp)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 56.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    trend.forEach { day ->
+                        val isToday = day.date == today
+                        val isSelected = day.date == selectedDay?.date
+                        val barHeightFraction = (day.total.toFloat() / maxTotal).coerceIn(0f, 1f)
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { selectedDay = day }
+                                .padding(horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom
+                        ) {
+                            if (day.total > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isSelected) cyan.copy(alpha = 0.15f) else surfaceAltColor,
+                                    border = BorderStroke(1.dp, if (isSelected) cyan else borderColor)
+                                ) {
+                                    Text(
+                                        text = "${day.total}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isSelected) cyan else primaryTextColor,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+
+                                val activeHeight = (96.dp * barHeightFraction).coerceAtLeast(16.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .width(22.dp)
+                                        .height(activeHeight)
+                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                        .background(Brush.verticalGradient(listOf(cyan, darkCyan)))
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(
+                                                    BorderStroke(1.5.dp, cyan),
+                                                    RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                                                )
+                                            } else Modifier
+                                        )
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(14.dp)
+                                        .height(3.dp)
+                                        .clip(RoundedCornerShape(1.5.dp))
+                                        .background(mutedColor.copy(alpha = 0.35f))
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+
+            // Timeline Axis Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 56.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                trend.forEach { day ->
+                    val isToday = day.date == today
+                    val isSelected = day.date == selectedDay?.date
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedDay = day }
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) cyan.copy(alpha = 0.12f) else Color.Transparent)
+                            .padding(vertical = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            text = day.label.take(3),
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                            color = when {
+                                isSelected -> cyan
+                                isToday -> cyan
+                                else -> mutedColor
+                            }
+                        )
+                        Text(
+                            text = "${day.date.dayOfMonth}",
+                            fontSize = 9.sp,
+                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                isSelected -> cyan
+                                isToday -> cyan
+                                else -> mutedColor.copy(alpha = 0.6f)
+                            }
+                        )
+                        if (isToday) {
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(cyan)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun RejectRateLineChart(trend: List<DailyTrend>) {
+    val emerald = EmeraldPrimary
     val pointSurface = Surface
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(170.dp)
+    val today = remember { LocalDate.now() }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        val values = trend.map { it.rejectPercent.toFloat() }
-        if (values.isEmpty()) return@Canvas
-        val maxValue = max(20f, values.maxOrNull() ?: 20f)
-        val points = values.mapIndexed { index, value ->
-            val x = if (values.size == 1) size.width / 2f else index * size.width / values.lastIndex
-            val y = size.height - (value / maxValue).coerceIn(0f, 1f) * size.height
-            Offset(x, y)
-        }
-        val warningY = size.height - (10f / maxValue).coerceIn(0f, 1f) * size.height
-        drawLine(
-            color = ScanResult.ClassB.color.copy(alpha = 0.45f),
-            start = Offset(0f, warningY),
-            end = Offset(size.width, warningY),
-            strokeWidth = 1.dp.toPx()
-        )
-        if (points.size > 1) {
-            val path = Path().apply {
-                moveTo(points.first().x, points.first().y)
-                points.drop(1).forEach { lineTo(it.x, it.y) }
+        val maxReject = trend.maxOfOrNull { it.rejectPercent } ?: 0
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (maxReject > 10) Color(0xFFEF4444).copy(alpha = 0.12f) else emerald.copy(alpha = 0.10f))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (maxReject > 10) Color(0xFFEF4444) else emerald)
+                )
+                Text(
+                    text = if (maxReject == 0) "Zero Contamination / Reject Risk" else "Peak Reject Rate: $maxReject%",
+                    color = if (maxReject > 10) Color(0xFFFF8A80) else emerald,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            drawPath(
-                path = path,
-                color = ScanResult.Reject.color,
-                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+            Text(
+                text = "Threshold: 10%",
+                color = TextMuted,
+                fontSize = 10.sp
             )
         }
-        points.forEach { point ->
-            drawCircle(color = pointSurface, radius = 6.dp.toPx(), center = point)
-            drawCircle(color = ScanResult.Reject.color, radius = 4.dp.toPx(), center = point)
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+        ) {
+            val values = trend.map { it.rejectPercent.toFloat() }
+            if (values.isEmpty()) return@Canvas
+            val maxValue = 25f
+
+            val y10 = size.height - (10f / maxValue) * size.height
+            val y20 = size.height - (20f / maxValue) * size.height
+
+            drawLine(
+                color = Color(0xFFF57C00).copy(alpha = 0.35f),
+                start = Offset(0f, y10),
+                end = Offset(size.width, y10),
+                strokeWidth = 1.dp.toPx()
+            )
+            drawLine(
+                color = Color(0xFFEF4444).copy(alpha = 0.35f),
+                start = Offset(0f, y20),
+                end = Offset(size.width, y20),
+                strokeWidth = 1.dp.toPx()
+            )
+
+            val points = values.mapIndexed { index, value ->
+                val x = if (values.size == 1) size.width / 2f else index * size.width / values.lastIndex
+                val y = (size.height - (value / maxValue).coerceIn(0f, 1f) * (size.height - 12.dp.toPx()) - 6.dp.toPx())
+                Offset(x, y)
+            }
+
+            if (points.size > 1) {
+                val fillPath = Path().apply {
+                    moveTo(points.first().x, size.height)
+                    lineTo(points.first().x, points.first().y)
+                    points.drop(1).forEach { lineTo(it.x, it.y) }
+                    lineTo(points.last().x, size.height)
+                    close()
+                }
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        listOf(Color(0xFFEF4444).copy(alpha = 0.20f), Color.Transparent)
+                    )
+                )
+
+                val linePath = Path().apply {
+                    moveTo(points.first().x, points.first().y)
+                    points.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                drawPath(
+                    path = linePath,
+                    color = if (maxReject > 0) Color(0xFFEF4444) else emerald,
+                    style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            points.forEachIndexed { i, point ->
+                val hasReject = values[i] > 0
+                drawCircle(
+                    color = pointSurface,
+                    radius = 5.dp.toPx(),
+                    center = point
+                )
+                drawCircle(
+                    color = if (hasReject) Color(0xFFEF4444) else emerald,
+                    radius = 3.5.dp.toPx(),
+                    center = point
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            trend.forEach { day ->
+                val isToday = day.date == today
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = day.label.take(3),
+                        fontSize = 10.sp,
+                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isToday) emerald else TextMuted
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun DistributionDonut(counts: ScanCounts) {
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(180.dp)
+    val total = max(1, counts.total)
+    val hasData = counts.total > 0
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        val total = max(1, counts.total)
-        val stroke = 28.dp.toPx()
-        val diameter = size.minDimension - stroke
-        val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
-        var start = -90f
-        ScanResult.entries.forEach { result ->
-            val sweep = 360f * counts.countFor(result) / total
-            drawArc(
-                color = result.color,
-                startAngle = start,
-                sweepAngle = sweep,
-                useCenter = false,
-                topLeft = topLeft,
-                size = Size(diameter, diameter),
-                style = Stroke(width = stroke, cap = StrokeCap.Butt)
-            )
-            start += sweep
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(170.dp)) {
+                val stroke = 24.dp.toPx()
+                val diameter = size.minDimension - stroke
+                val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+
+                drawArc(
+                    color = Color(0x14FFFFFF),
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = Size(diameter, diameter),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+
+                if (hasData) {
+                    var start = -90f
+                    listOf(
+                        ScanResult.ClassA to counts.classA,
+                        ScanResult.ClassB to counts.classB,
+                        ScanResult.Reject to counts.reject
+                    ).forEach { (result, count) ->
+                        if (count > 0) {
+                            val sweep = 360f * count / total
+                            drawArc(
+                                color = result.color,
+                                startAngle = start,
+                                sweepAngle = sweep,
+                                useCenter = false,
+                                topLeft = topLeft,
+                                size = Size(diameter, diameter),
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
+                            )
+                            start += sweep
+                        }
+                    }
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "${counts.total}",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "TOTAL SCANS",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted,
+                    letterSpacing = 0.8.sp
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                Triple("Class A", counts.classA, ScanResult.ClassA.color),
+                Triple("Class B", counts.classB, ScanResult.ClassB.color),
+                Triple("Reject", counts.reject, ScanResult.Reject.color)
+            ).forEach { (label, count, color) ->
+                val pct = if (hasData) (count * 100f / total) else 0f
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = color.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, color.copy(alpha = 0.25f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            )
+                            Text(label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Text(
+                            text = "$count bags",
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = String.format(java.util.Locale.US, "%.1f%%", pct),
+                            color = color,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
     }
 }
